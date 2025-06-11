@@ -416,6 +416,8 @@ class TradeTickDataWranglerV2(WranglerBase):
             "ts_recv": "ts_init",
             "quantity": "size",
             "buyer_maker": "aggressor_side",
+            "mint": "mint",
+            "user": "user",
         }
         df = df.rename(columns=expected_columns)
 
@@ -450,12 +452,16 @@ class TradeTickDataWranglerV2(WranglerBase):
 
         aggressor_side = df["aggressor_side"].map(_map_aggressor_side)
         trade_id = df["trade_id"].astype(str)
+        mint = df["mint"].astype(str)
+        user = df["user"].astype(str)
 
         fields = [
             pa.field("price", pa.binary(FIXED_PRECISION_BYTES), nullable=False),
             pa.field("size", pa.binary(FIXED_PRECISION_BYTES), nullable=False),
             pa.field("aggressor_side", pa.uint8(), nullable=False),
             pa.field("trade_id", pa.string(), nullable=False),
+            pa.field("mint", pa.string(), nullable=False),
+            pa.field("user", pa.string(), nullable=False),
             pa.field("ts_event", pa.uint64(), nullable=False),
             pa.field("ts_init", pa.uint64(), nullable=False),
         ]
@@ -465,6 +471,8 @@ class TradeTickDataWranglerV2(WranglerBase):
             pa.array(size, type=pa.binary(FIXED_PRECISION_BYTES)),
             pa.array(aggressor_side, type=pa.uint8()),
             pa.array(trade_id, type=pa.string()),
+            pa.array(mint, type=pa.string()),
+            pa.array(user, type=pa.string()),
             pa.array(ts_event, type=pa.uint64()),
             pa.array(ts_init, type=pa.uint64()),
         ]

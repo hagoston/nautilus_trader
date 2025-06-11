@@ -24,18 +24,21 @@ use nautilus_core::ffi::string::str_to_cstr;
 use crate::{
     data::TradeTick,
     enums::AggressorSide,
-    identifiers::{InstrumentId, TradeId},
+    identifiers::{InstrumentId, SolanaAddress, TradeId}, // Added SolanaAddress
     types::{Price, Quantity},
 };
 
 #[unsafe(no_mangle)]
 #[cfg_attr(feature = "high-precision", allow(improper_ctypes_definitions))]
+#[allow(clippy::too_many_arguments)] // Expected for FFI
 pub extern "C" fn trade_tick_new(
     instrument_id: InstrumentId,
     price: Price,
     size: Quantity,
     aggressor_side: AggressorSide,
     trade_id: TradeId,
+    mint: SolanaAddress, // Added
+    user: SolanaAddress, // Added
     ts_event: u64,
     ts_init: u64,
 ) -> TradeTick {
@@ -45,6 +48,8 @@ pub extern "C" fn trade_tick_new(
         size,
         aggressor_side,
         trade_id,
+        mint, // Added
+        user, // Added
         ts_event.into(),
         ts_init.into(),
     )

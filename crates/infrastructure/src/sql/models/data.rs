@@ -16,7 +16,7 @@
 use nautilus_core::UnixNanos;
 use nautilus_model::{
     data::{Bar, BarSpecification, BarType, QuoteTick, TradeTick},
-    identifiers::{InstrumentId, TradeId},
+    identifiers::{InstrumentId, SolanaAddress, TradeId}, // Added SolanaAddress
     types::{Price, Quantity},
 };
 use sqlx::{Error, FromRow, Row, postgres::PgRow};
@@ -79,6 +79,8 @@ impl<'r> FromRow<'r, PgRow> for TradeTickModel {
             size,
             aggressor_side,
             trade_id,
+            SolanaAddress::new("DbMint111111111111111111111111111111111"), // Placeholder
+            SolanaAddress::new("DbUser111111111111111111111111111111111"), // Placeholder
             ts_event,
             ts_init,
         );

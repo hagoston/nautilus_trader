@@ -26,7 +26,7 @@ use nautilus_model::{
         AggregationSource, AggressorSide, AssetClass, BarAggregation, BookAction, FromU8, FromU16,
         InstrumentClass, MarketStatusAction, OptionKind, OrderSide, PriceType,
     },
-    identifiers::{InstrumentId, TradeId},
+    identifiers::{InstrumentId, SolanaAddress, TradeId}, // Added SolanaAddress
     instruments::{
         Equity, FuturesContract, FuturesSpread, InstrumentAny, OptionContract, OptionSpread,
     },
@@ -552,6 +552,8 @@ pub fn decode_mbo_msg(
                 Quantity::from(msg.size),
                 parse_aggressor_side(msg.side),
                 TradeId::new(itoa::Buffer::new().format(msg.sequence)),
+                SolanaAddress::new("DbMint111111111111111111111111111111111"), // Placeholder
+                SolanaAddress::new("DbUser111111111111111111111111111111111"), // Placeholder
                 ts_event,
                 ts_init,
             );
@@ -601,6 +603,8 @@ pub fn decode_trade_msg(
         Quantity::from(msg.size),
         parse_aggressor_side(msg.side),
         TradeId::new(itoa::Buffer::new().format(msg.sequence)),
+        SolanaAddress::new("DbMint111111111111111111111111111111111"), // Placeholder
+        SolanaAddress::new("DbUser111111111111111111111111111111111"), // Placeholder
         ts_event,
         ts_init,
     );
@@ -637,6 +641,8 @@ pub fn decode_tbbo_msg(
         Quantity::from(msg.size),
         parse_aggressor_side(msg.side),
         TradeId::new(itoa::Buffer::new().format(msg.sequence)),
+        SolanaAddress::new("DbMint111111111111111111111111111111111"), // Placeholder
+        SolanaAddress::new("DbUser111111111111111111111111111111111"), // Placeholder
         ts_event,
         ts_init,
     );
@@ -675,6 +681,8 @@ pub fn decode_mbp1_msg(
             Quantity::from(msg.size),
             parse_aggressor_side(msg.side),
             TradeId::new(itoa::Buffer::new().format(msg.sequence)),
+            SolanaAddress::new("DbMint111111111111111111111111111111111"), // Placeholder
+            SolanaAddress::new("DbUser111111111111111111111111111111111"), // Placeholder
             ts_event,
             ts_init,
         ))

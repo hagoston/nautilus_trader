@@ -47,6 +47,7 @@ from nautilus_trader.model.data cimport OrderBookDeltas
 from nautilus_trader.model.identifiers cimport InstrumentId
 from nautilus_trader.model.identifiers cimport TradeId
 from nautilus_trader.model.identifiers cimport Venue
+from nautilus_trader.model.identifiers cimport SolanaAddress  # Added
 from nautilus_trader.model.objects cimport Price
 from nautilus_trader.model.objects cimport Quantity
 
@@ -424,6 +425,8 @@ cdef class TradeTick(Data):
         uint8_t size_prec,
         AggressorSide aggressor_side,
         TradeId trade_id,
+        SolanaAddress mint,  # Added
+        SolanaAddress user,  # Added
         uint64_t ts_event,
         uint64_t ts_init,
     )
@@ -437,6 +440,8 @@ cdef class TradeTick(Data):
         double[:] sizes_raw,
         uint8_t[:] aggressor_sides,
         list[str] trade_ids,
+        list[str] mints,  # Added
+        list[str] users,  # Added
         uint64_t[:] ts_events,
         uint64_t[:] ts_inits,
     )

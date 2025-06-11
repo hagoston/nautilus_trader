@@ -11,6 +11,13 @@ cdef extern from "../includes/model.h":
 
     const uintptr_t DEPTH10_LEN # = 10
 
+    # The maximum number of data characters for a `SolanaAddress` string value.
+    # Solana addresses are typically 32-44 characters long.
+    const uintptr_t SOLANA_ADDRESS_MAX_CHARS # = 44
+
+    # The total buffer length for a `SolanaAddress` byte array (including null terminator).
+    const uintptr_t SOLANA_ADDRESS_BUFFER_LEN # = (SOLANA_ADDRESS_MAX_CHARS + 1)
+
     # The maximum length of ASCII characters for a `TradeId` string value (including null terminator).
     const uintptr_t TRADE_ID_LEN # = 37
 
@@ -637,6 +644,12 @@ cdef extern from "../includes/model.h":
         # The trade match ID value as a fixed-length C string byte array (includes null terminator).
         uint8_t value[TRADE_ID_LEN];
 
+    # Represents a valid Solana address.
+    # A Solana address is typically a Base58 encoded public key of 32-44 characters.
+    cdef struct SolanaAddress_t:
+        # The Solana address value as a fixed-length C string byte array (includes null terminator).
+        uint8_t value[SOLANA_ADDRESS_BUFFER_LEN];
+
     # Represents a trade tick in a market.
     cdef struct TradeTick_t:
         # The trade instrument ID.
@@ -649,6 +662,10 @@ cdef extern from "../includes/model.h":
         AggressorSide aggressor_side;
         # The trade match ID (assigned by the venue).
         TradeId_t trade_id;
+        # The mint address of the token involved in the trade (e.g. for pump.fun).
+        SolanaAddress_t mint;
+        # The user address involved in the trade (e.g. for pump.fun).
+        SolanaAddress_t user;
         # UNIX timestamp (nanoseconds) when the trade event occurred.
         uint64_t ts_event;
         # UNIX timestamp (nanoseconds) when the struct was initialized.
@@ -1266,6 +1283,8 @@ cdef extern from "../includes/model.h":
                                Quantity_t size,
                                AggressorSide aggressor_side,
                                TradeId_t trade_id,
+                               SolanaAddress_t mint,
+                               SolanaAddress_t user,
                                uint64_t ts_event,
                                uint64_t ts_init);
 
@@ -1765,6 +1784,17 @@ cdef extern from "../includes/model.h":
     PositionId_t position_id_new(const char *ptr);
 
     uint64_t position_id_hash(const PositionId_t *id);
+
+    # Returns a Nautilus SolanaAddress from a C string pointer.
+    #
+    # # Safety
+    #
+    # Assumes `ptr` is a valid C string pointer.
+    SolanaAddress_t solana_address_new(const char *ptr);
+
+    uint64_t solana_address_hash(const SolanaAddress_t *solana_address);
+
+    const char *solana_address_to_cstr(const SolanaAddress_t *solana_address);
 
     # Returns a Nautilus identifier from a C string pointer.
     #

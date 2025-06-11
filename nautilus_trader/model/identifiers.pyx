@@ -13,6 +13,8 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
+import re  # Added
+import base58 # Added - assuming this library is available
 from libc.string cimport strcmp
 
 from nautilus_trader.core import nautilus_pyo3
@@ -48,6 +50,8 @@ from nautilus_trader.core.rust.model cimport symbol_topic
 from nautilus_trader.core.rust.model cimport trade_id_hash
 from nautilus_trader.core.rust.model cimport trade_id_new
 from nautilus_trader.core.rust.model cimport trade_id_to_cstr
+from nautilus_trader.core.rust.model cimport solana_address_new  # Added
+from nautilus_trader.core.rust.model cimport solana_address_to_cstr # Added
 from nautilus_trader.core.rust.model cimport trader_id_hash
 from nautilus_trader.core.rust.model cimport trader_id_new
 from nautilus_trader.core.rust.model cimport venue_code_exists
@@ -1037,3 +1041,75 @@ cdef class TradeId(Identifier):
 
     cdef str to_str(self):
         return cstr_to_pystr(trade_id_to_cstr(&self._mem), False)
+
+
+cdef class SolanaAddress(Identifier):
+    """
+    Represents a valid Solana address.
+
+    A Solana address is a 32-byte array, encoded with the Bitcoin Base58 alphabet.
+    This results in an ASCII text string matching the regex: `[1-9A-HJ-NP-Za-km-z]{32,44}`.
+
+    Parameters
+    ----------
+    value : str
+        The Solana address value.
+
+    Raises
+    ------
+    ValueError
+        If `value` is not a valid Solana address string (format or decoded length).
+    """
+
+    _SOLANA_ADDRESS_REGEX = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+
+    def __init__(self, str value not None) -> None:
+        Condition.valid_string(value, "value")
+
+        if not SolanaAddress._SOLANA_ADDRESS_REGEX.match(value):
+            raise ValueError(
+                f"Invalid Solana address format: '{value}'. "
+                f"Does not match regex '{SolanaAddress._SOLANA_ADDRESS_REGEX.pattern}'."
+            )
+
+        try:
+            decoded_bytes = base58.b58decode(value)
+        except Exception as e:
+            raise ValueError(f"Invalid Solana address: '{value}'. Failed to decode base58: {e}")
+
+        if len(decoded_bytes) != 32:
+            raise ValueError(
+                f"Invalid Solana address: '{value}'. "
+                f"Decoded byte length is {len(decoded_bytes)}, expected 32."
+            )
+
+        self._mem = solana_address_new(pystr_to_cstr(value))
+
+    def __getstate__(self):
+        return self.to_str()
+
+    def __setstate__(self, state):
+        # Assuming the state is already validated if it was created by __init__
+        self._mem = solana_address_new(pystr_to_cstr(state))
+
+    def __eq__(self, SolanaAddress other) -> bool:
+        if other is None:
+            raise RuntimeError("other was None in __eq__")
+        # It's generally safer to compare the string representations
+        # if the underlying _mem might not be identical for semantically equal values
+        # after pickling or other transformations, unless solana_address_to_cstr is guaranteed
+        # to be canonical and the _mem comparison is faster and reliable.
+        # For now, sticking to the pattern of other ID classes.
+        return strcmp(solana_address_to_cstr(&self._mem), solana_address_to_cstr(&other._mem)) == 0
+
+    def __hash__(self) -> int:
+        return hash(self.to_str())
+
+    @staticmethod
+    cdef SolanaAddress from_mem_c(SolanaAddress_t mem):
+        cdef SolanaAddress solana_address = SolanaAddress.__new__(SolanaAddress)
+        solana_address._mem = mem
+        return solana_address
+
+    cdef str to_str(self):
+        return cstr_to_pystr(solana_address_to_cstr(&self._mem), False)

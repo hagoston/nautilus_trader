@@ -24,7 +24,7 @@ use nautilus_model::{
         QuoteTick, TradeTick,
     },
     enums::{AggregationSource, BookAction, OrderSide, RecordFlag},
-    identifiers::{InstrumentId, TradeId},
+    identifiers::{InstrumentId, SolanaAddress, TradeId}, // Added SolanaAddress
     types::{Price, Quantity},
 };
 use uuid::Uuid;
@@ -343,6 +343,8 @@ pub fn parse_trade_msg(
         size,
         aggressor_side,
         trade_id,
+        SolanaAddress::new("TardisMachineMint111111111111111111111111"), // Placeholder
+        SolanaAddress::new("TardisMachineUser111111111111111111111111"), // Placeholder
         ts_event,
         ts_init,
     ))

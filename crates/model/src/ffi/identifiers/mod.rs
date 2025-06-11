@@ -21,6 +21,7 @@ pub mod exec_algorithm_id;
 pub mod instrument_id;
 pub mod order_list_id;
 pub mod position_id;
+pub mod solana_address;
 pub mod strategy_id;
 pub mod symbol;
 pub mod trade_id;

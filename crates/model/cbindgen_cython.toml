@@ -87,6 +87,7 @@ exclude = [
 "UUID4" = "UUID4_t"
 "Venue" = "Venue_t"
 "VenueOrderId" = "VenueOrderId_t"
+"SolanaAddress" = "SolanaAddress_t" # Added
 "MarkPriceUpdate" = "MarkPriceUpdate_t"
 "IndexPriceUpdate" = "IndexPriceUpdate_t"
 "InstrumentClose" = "InstrumentClose_t"

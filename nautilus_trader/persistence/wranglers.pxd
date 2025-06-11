@@ -71,6 +71,8 @@ cdef class TradeTickDataWrangler:
         double size,
         AggressorSide aggressor_side,
         str trade_id,
+        str mint,
+        str user,
         uint64_t ts_event,
         uint64_t ts_init,
     )

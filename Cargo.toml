@@ -134,10 +134,10 @@ cbindgen = "0.28.0"
 
 [profile.dev]
 opt-level = 0
-debug = false  # Improves compile times
-debug-assertions = false  # Fails Cython build if true
+debug = true
+debug-assertions = true
 overflow-checks = true
-strip = "debuginfo"  # Improves compile times
+strip = false
 lto = false
 panic = "unwind"
 incremental = true

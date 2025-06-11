@@ -20,9 +20,10 @@ use nautilus_model::{
         OrderBookDeltas, QuoteTick, TradeTick,
     },
     enums::{AggregationSource, AggressorSide, BookAction, OrderSide, RecordFlag},
-    identifiers::{InstrumentId, Symbol, TradeId},
-    instruments::{CryptoPerpetual, CurrencyPair, any::InstrumentAny},
-    types::{Price, Quantity},
+identifiers::{InstrumentId, SolanaAddress, Symbol, TradeId}, // Added SolanaAddress
+// identifiers::{InstrumentId, Symbol, TradeId}, // Removed duplicate line
+instruments::{CryptoPerpetual, CurrencyPair, any::InstrumentAny},
+types::{Price, Quantity},
 };
 use rust_decimal::Decimal;
 
@@ -411,6 +412,8 @@ pub fn parse_trade_msg(
         size,
         aggressor_side,
         trade_id,
+        SolanaAddress::new("CoinbaseMint11111111111111111111111111111"), // Placeholder
+        SolanaAddress::new("CoinbaseUser11111111111111111111111111111"), // Placeholder
         ts_event,
         ts_init,
     ))

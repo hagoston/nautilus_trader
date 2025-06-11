@@ -39,7 +39,7 @@ use super::data_to_pycapsule;
 use crate::{
     data::{Data, TradeTick},
     enums::{AggressorSide, FromU8},
-    identifiers::{InstrumentId, TradeId},
+    identifiers::{InstrumentId, SolanaAddress, TradeId}, // Added SolanaAddress
     python::common::PY_MODULE_MODEL,
     types::{
         price::{Price, PriceRaw},
@@ -81,6 +81,24 @@ impl TradeTick {
         let trade_id_str: String = trade_id_obj.getattr("value")?.extract()?;
         let trade_id = TradeId::from(trade_id_str.as_str());
 
+        // Attempt to extract mint and user, use defaults if not present for backward compatibility
+        let mint = match obj.getattr("mint") {
+            Ok(mint_obj_bound) => {
+                let mint_obj: Bound<'_, PyAny> = mint_obj_bound.extract()?;
+                let mint_str: String = mint_obj.getattr("value")?.extract()?;
+                SolanaAddress::new_checked(&mint_str).map_err(to_pyvalue_err)?
+            }
+            Err(_) => SolanaAddress::new("MintDef11111111111111111111111111111111"), // Default
+        };
+        let user = match obj.getattr("user") {
+            Ok(user_obj_bound) => {
+                let user_obj: Bound<'_, PyAny> = user_obj_bound.extract()?;
+                let user_str: String = user_obj.getattr("value")?.extract()?;
+                SolanaAddress::new_checked(&user_str).map_err(to_pyvalue_err)?
+            }
+            Err(_) => SolanaAddress::new("UserDef11111111111111111111111111111111"), // Default
+        };
+
         let ts_event: u64 = obj.getattr("ts_event")?.extract()?;
         let ts_init: u64 = obj.getattr("ts_init")?.extract()?;
 
@@ -90,6 +108,8 @@ impl TradeTick {
             size,
             aggressor_side,
             trade_id,
+            mint,
+            user,
             ts_event.into(),
             ts_init.into(),
         ))
@@ -99,12 +119,15 @@ impl TradeTick {
 #[pymethods]
 impl TradeTick {
     #[new]
+    #[pyo3(signature = (instrument_id, price, size, aggressor_side, trade_id, mint, user, ts_event, ts_init))]
     fn py_new(
         instrument_id: InstrumentId,
         price: Price,
         size: Quantity,
         aggressor_side: AggressorSide,
         trade_id: TradeId,
+        mint: SolanaAddress, // Added
+        user: SolanaAddress, // Added
         ts_event: u64,
         ts_init: u64,
     ) -> PyResult<Self> {
@@ -114,6 +137,8 @@ impl TradeTick {
             size,
             aggressor_side,
             trade_id,
+            mint, // Added
+            user, // Added
             ts_event.into(),
             ts_init.into(),
         )
@@ -122,36 +147,51 @@ impl TradeTick {
 
     fn __setstate__(&mut self, state: &Bound<'_, PyAny>) -> PyResult<()> {
         let py_tuple: &Bound<'_, PyTuple> = state.downcast::<PyTuple>()?;
-        let binding = py_tuple.get_item(0)?;
-        let instrument_id_str = binding.downcast::<PyString>()?.extract::<&str>()?;
-        let price_raw = py_tuple
-            .get_item(1)?
-            .downcast::<PyInt>()?
-            .extract::<PriceRaw>()?;
+        // Removed original instrument_id_str, trade_id_str, mint_str, user_str declarations
+        // to avoid unused variable warnings and fix lifetime issues.
+
+        let price_raw = py_tuple.get_item(1)?.downcast::<PyInt>()?.extract::<PriceRaw>()?;
         let price_prec = py_tuple.get_item(2)?.downcast::<PyInt>()?.extract::<u8>()?;
-        let size_raw = py_tuple
-            .get_item(3)?
-            .downcast::<PyInt>()?
-            .extract::<QuantityRaw>()?;
+        let size_raw = py_tuple.get_item(3)?.downcast::<PyInt>()?.extract::<QuantityRaw>()?;
         let size_prec = py_tuple.get_item(4)?.downcast::<PyInt>()?.extract::<u8>()?;
-
         let aggressor_side_u8 = py_tuple.get_item(5)?.downcast::<PyInt>()?.extract::<u8>()?;
-        let binding = py_tuple.get_item(6)?;
-        let trade_id_str = binding.downcast::<PyString>()?.extract::<&str>()?;
-        let ts_event = py_tuple
-            .get_item(7)?
-            .downcast::<PyInt>()?
-            .extract::<u64>()?;
-        let ts_init = py_tuple
-            .get_item(8)?
-            .downcast::<PyInt>()?
-            .extract::<u64>()?;
 
-        self.instrument_id = InstrumentId::from_str(instrument_id_str).map_err(to_pyvalue_err)?;
+        // Correctly handle lifetimes for string extraction
+        let instrument_id_item = py_tuple.get_item(0)?;
+        let instrument_id_str_ref = instrument_id_item.downcast::<PyString>()?.extract::<&str>()?;
+        self.instrument_id = InstrumentId::from_str(instrument_id_str_ref).map_err(to_pyvalue_err)?;
+        
         self.price = Price::from_raw(price_raw, price_prec);
         self.size = Quantity::from_raw(size_raw, size_prec);
         self.aggressor_side = AggressorSide::from_u8(aggressor_side_u8).unwrap();
-        self.trade_id = TradeId::from(trade_id_str);
+
+        let trade_id_item = py_tuple.get_item(6)?;
+        let trade_id_str_ref = trade_id_item.downcast::<PyString>()?.extract::<&str>()?;
+        self.trade_id = TradeId::from(trade_id_str_ref);
+
+        // For mint and user, extract to String to own the data and avoid lifetime issues with &str
+        let mint_str_owned: String = if py_tuple.len() > 9 { // New format has 11 items, mint is at index 7
+            let mint_item = py_tuple.get_item(7)?;
+            mint_item.downcast::<PyString>()?.extract::<String>()?
+        } else {
+            "MintDef11111111111111111111111111111111".to_string() // Default for old format
+        };
+        self.mint = SolanaAddress::new_checked(&mint_str_owned).map_err(to_pyvalue_err)?;
+
+        let user_str_owned: String = if py_tuple.len() > 10 { // New format, user is at index 8
+            let user_item = py_tuple.get_item(8)?;
+            user_item.downcast::<PyString>()?.extract::<String>()?
+        } else {
+            "UserDef11111111111111111111111111111111".to_string() // Default for old format
+        };
+        self.user = SolanaAddress::new_checked(&user_str_owned).map_err(to_pyvalue_err)?;
+        
+        let ts_event_idx = if py_tuple.len() > 9 { 9 } else { 7 }; // Adjusted for 0-based indexing and presence of mint/user
+        let ts_init_idx = if py_tuple.len() > 9 { 10 } else { 8 }; // Adjusted for 0-based indexing
+
+        let ts_event = py_tuple.get_item(ts_event_idx)?.downcast::<PyInt>()?.extract::<u64>()?;
+        let ts_init = py_tuple.get_item(ts_init_idx)?.downcast::<PyInt>()?.extract::<u64>()?;
+        
         self.ts_event = ts_event.into();
         self.ts_init = ts_init.into();
 
@@ -167,6 +207,8 @@ impl TradeTick {
             self.size.precision,
             self.aggressor_side as u8,
             self.trade_id.to_string(),
+            self.mint.as_str(), // Added
+            self.user.as_str(), // Added
             self.ts_event.as_u64(),
             self.ts_init.as_u64(),
         )
@@ -187,6 +229,8 @@ impl TradeTick {
             Quantity::from(1), // size cannot be zero
             AggressorSide::NoAggressor,
             TradeId::from("NULL"),
+            SolanaAddress::new("MintSafe1111111111111111111111111111111"), // Added
+            SolanaAddress::new("UserSafe1111111111111111111111111111111"), // Added
             UnixNanos::default(),
             UnixNanos::default(),
         )
@@ -242,6 +286,18 @@ impl TradeTick {
     #[pyo3(name = "trade_id")]
     fn py_trade_id(&self) -> TradeId {
         self.trade_id
+    }
+
+    #[getter]
+    #[pyo3(name = "mint")]
+    fn py_mint(&self) -> SolanaAddress { // Added
+        self.mint
+    }
+
+    #[getter]
+    #[pyo3(name = "user")]
+    fn py_user(&self) -> SolanaAddress { // Added
+        self.user
     }
 
     #[getter]

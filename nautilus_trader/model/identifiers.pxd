@@ -27,6 +27,7 @@ from nautilus_trader.core.rust.model cimport TradeId_t
 from nautilus_trader.core.rust.model cimport TraderId_t
 from nautilus_trader.core.rust.model cimport Venue_t
 from nautilus_trader.core.rust.model cimport VenueOrderId_t
+from nautilus_trader.core.rust.model cimport SolanaAddress_t  # Added
 
 
 cdef class Identifier:
@@ -148,3 +149,10 @@ cdef class TradeId(Identifier):
 
     @staticmethod
     cdef TradeId from_mem_c(TradeId_t mem)
+
+
+cdef class SolanaAddress(Identifier):  # Added
+    cdef SolanaAddress_t _mem  # Added
+
+    @staticmethod  # Added
+    cdef SolanaAddress from_mem_c(SolanaAddress_t mem)  # Added

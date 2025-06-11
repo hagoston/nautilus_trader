@@ -32,7 +32,7 @@ use nautilus_model::{
         BookOrder, DEPTH10_LEN, NULL_ORDER, OrderBookDelta, OrderBookDepth10, QuoteTick, TradeTick,
     },
     enums::{BookAction, OrderSide, RecordFlag},
-    identifiers::{InstrumentId, TradeId},
+    identifiers::{InstrumentId, SolanaAddress, TradeId}, // Added SolanaAddress
     types::{Quantity, fixed::FIXED_PRECISION},
 };
 
@@ -830,6 +830,8 @@ pub fn load_trade_ticks<P: AsRef<Path>>(
             size,
             aggressor_side,
             trade_id,
+            SolanaAddress::new("TardisCsvMint111111111111111111111111111"), // Placeholder
+            SolanaAddress::new("TardisCsvUser111111111111111111111111111"), // Placeholder
             ts_event,
             ts_init,
         );

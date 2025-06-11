@@ -27,7 +27,7 @@ use arrow::{
 use nautilus_model::{
     data::TradeTick,
     enums::AggressorSide,
-    identifiers::{InstrumentId, TradeId},
+    identifiers::{InstrumentId, SolanaAddress, TradeId}, // Added SolanaAddress
     types::{Price, Quantity, fixed::PRECISION_BYTES},
 };
 
@@ -44,6 +44,8 @@ impl ArrowSchemaProvider for TradeTick {
             Field::new("size", DataType::FixedSizeBinary(PRECISION_BYTES), false),
             Field::new("aggressor_side", DataType::UInt8, false),
             Field::new("trade_id", DataType::Utf8, false),
+            Field::new("mint", DataType::Utf8, false), // Added
+            Field::new("user", DataType::Utf8, false), // Added
             Field::new("ts_event", DataType::UInt64, false),
             Field::new("ts_init", DataType::UInt64, false),
         ];
@@ -89,6 +91,8 @@ impl EncodeToRecordBatch for TradeTick {
 
         let mut aggressor_side_builder = UInt8Array::builder(data.len());
         let mut trade_id_builder = StringBuilder::new();
+        let mut mint_builder = StringBuilder::new(); // Added
+        let mut user_builder = StringBuilder::new(); // Added
         let mut ts_event_builder = UInt64Array::builder(data.len());
         let mut ts_init_builder = UInt64Array::builder(data.len());
 
@@ -101,6 +105,8 @@ impl EncodeToRecordBatch for TradeTick {
                 .unwrap();
             aggressor_side_builder.append_value(tick.aggressor_side as u8);
             trade_id_builder.append_value(tick.trade_id.to_string());
+            mint_builder.append_value(tick.mint.as_str()); // Added
+            user_builder.append_value(tick.user.as_str()); // Added
             ts_event_builder.append_value(tick.ts_event.as_u64());
             ts_init_builder.append_value(tick.ts_init.as_u64());
         }
@@ -109,6 +115,8 @@ impl EncodeToRecordBatch for TradeTick {
         let size_array = Arc::new(size_builder.finish());
         let aggressor_side_array = Arc::new(aggressor_side_builder.finish());
         let trade_id_array = Arc::new(trade_id_builder.finish());
+        let mint_array = Arc::new(mint_builder.finish()); // Added
+        let user_array = Arc::new(user_builder.finish()); // Added
         let ts_event_array = Arc::new(ts_event_builder.finish());
         let ts_init_array = Arc::new(ts_init_builder.finish());
 
@@ -119,6 +127,8 @@ impl EncodeToRecordBatch for TradeTick {
                 size_array,
                 aggressor_side_array,
                 trade_id_array,
+                mint_array, // Added
+                user_array, // Added
                 ts_event_array,
                 ts_init_array,
             ],
@@ -157,8 +167,10 @@ impl DecodeFromRecordBatch for TradeTick {
         )?;
         let aggressor_side_values =
             extract_column::<UInt8Array>(cols, "aggressor_side", 2, DataType::UInt8)?;
-        let ts_event_values = extract_column::<UInt64Array>(cols, "ts_event", 4, DataType::UInt64)?;
-        let ts_init_values = extract_column::<UInt64Array>(cols, "ts_init", 5, DataType::UInt64)?;
+        
+        // Adjusted indices for new columns
+        let ts_event_values = extract_column::<UInt64Array>(cols, "ts_event", 6, DataType::UInt64)?;
+        let ts_init_values = extract_column::<UInt64Array>(cols, "ts_init", 7, DataType::UInt64)?;
 
         // Datafusion reads trade_ids as StringView
         let trade_id_values: Vec<TradeId> = if record_batch
@@ -177,6 +189,34 @@ impl DecodeFromRecordBatch for TradeTick {
                 .map(|id| TradeId::from(id.unwrap()))
                 .collect()
         };
+        
+        // Handle mint (index 4)
+        let mint_values: Vec<SolanaAddress> = match record_batch.schema().field_with_name("mint") {
+            Ok(field) => {
+                if field.data_type() == &DataType::Utf8View {
+                    extract_column::<StringViewArray>(cols, "mint", 4, DataType::Utf8View)?
+                        .iter().map(|s_opt| SolanaAddress::new(s_opt.unwrap_or("MintDef11111111111111111111111111111111"))).collect()
+                } else {
+                    extract_column::<StringArray>(cols, "mint", 4, DataType::Utf8)?
+                        .iter().map(|s_opt| SolanaAddress::new(s_opt.unwrap_or("MintDef11111111111111111111111111111111"))).collect()
+                }
+            }
+            Err(_) => vec![SolanaAddress::new("MintDef11111111111111111111111111111111"); record_batch.num_rows()], // Default if column missing
+        };
+
+        // Handle user (index 5)
+        let user_values: Vec<SolanaAddress> = match record_batch.schema().field_with_name("user") {
+            Ok(field) => {
+                if field.data_type() == &DataType::Utf8View {
+                    extract_column::<StringViewArray>(cols, "user", 5, DataType::Utf8View)?
+                        .iter().map(|s_opt| SolanaAddress::new(s_opt.unwrap_or("UserDef11111111111111111111111111111111"))).collect()
+                } else {
+                    extract_column::<StringArray>(cols, "user", 5, DataType::Utf8)?
+                        .iter().map(|s_opt| SolanaAddress::new(s_opt.unwrap_or("UserDef11111111111111111111111111111111"))).collect()
+                }
+            }
+            Err(_) => vec![SolanaAddress::new("UserDef11111111111111111111111111111111"); record_batch.num_rows()], // Default if column missing
+        };
 
         let result: Result<Vec<Self>, EncodingError> = (0..record_batch.num_rows())
             .map(|i| {
@@ -193,6 +233,8 @@ impl DecodeFromRecordBatch for TradeTick {
                         )
                     })?;
                 let trade_id = trade_id_values[i];
+                let mint = mint_values[i]; // Added
+                let user = user_values[i]; // Added
                 let ts_event = ts_event_values.value(i).into();
                 let ts_init = ts_init_values.value(i).into();
 
@@ -202,6 +244,8 @@ impl DecodeFromRecordBatch for TradeTick {
                     size,
                     aggressor_side,
                     trade_id,
+                    mint, // Added
+                    user, // Added
                     ts_event,
                     ts_init,
                 })

@@ -47,8 +47,8 @@ use nautilus_model::{
         OrderFilled, OrderModifyRejected, OrderRejected, OrderTriggered, OrderUpdated,
     },
     identifiers::{
-        AccountId, ClientOrderId, InstrumentId, PositionId, StrategyId, TraderId, Venue,
-        VenueOrderId,
+        AccountId, ClientOrderId, InstrumentId, PositionId, SolanaAddress, StrategyId, TraderId, // Added SolanaAddress
+        Venue, VenueOrderId,
     },
     instruments::{EXPIRING_INSTRUMENT_TYPES, Instrument, InstrumentAny},
     orderbook::OrderBook,
@@ -347,6 +347,8 @@ impl OrderMatchingEngine {
             size,
             aggressor_side,
             self.ids_generator.generate_trade_id(),
+            SolanaAddress::new("ExecMint11111111111111111111111111111111"), // Placeholder
+            SolanaAddress::new("ExecUser11111111111111111111111111111111"), // Placeholder
             bar.ts_event,
             bar.ts_event,
         );

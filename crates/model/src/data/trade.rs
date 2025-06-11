@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use super::GetTsInit;
 use crate::{
     enums::AggressorSide,
-    identifiers::{InstrumentId, TradeId},
+    identifiers::{InstrumentId, SolanaAddress, TradeId}, // Added SolanaAddress
     types::{Price, Quantity, fixed::FIXED_SIZE_BINARY, quantity::check_positive_quantity},
 };
 
@@ -48,6 +48,10 @@ pub struct TradeTick {
     pub aggressor_side: AggressorSide,
     /// The trade match ID (assigned by the venue).
     pub trade_id: TradeId,
+    /// The mint address of the token involved in the trade (e.g. for pump.fun).
+    pub mint: SolanaAddress,
+    /// The user address involved in the trade (e.g. for pump.fun).
+    pub user: SolanaAddress,
     /// UNIX timestamp (nanoseconds) when the trade event occurred.
     pub ts_event: UnixNanos,
     /// UNIX timestamp (nanoseconds) when the struct was initialized.
@@ -64,12 +68,15 @@ impl TradeTick {
     /// # Notes
     ///
     /// PyO3 requires a `Result` type for proper error handling and stacktrace printing in Python.
+    #[allow(clippy::too_many_arguments)] // Expected for FFI-compatible structs
     pub fn new_checked(
         instrument_id: InstrumentId,
         price: Price,
         size: Quantity,
         aggressor_side: AggressorSide,
         trade_id: TradeId,
+        mint: SolanaAddress,
+        user: SolanaAddress,
         ts_event: UnixNanos,
         ts_init: UnixNanos,
     ) -> anyhow::Result<Self> {
@@ -81,6 +88,8 @@ impl TradeTick {
             size,
             aggressor_side,
             trade_id,
+            mint,
+            user,
             ts_event,
             ts_init,
         })
@@ -92,12 +101,15 @@ impl TradeTick {
     ///
     /// Panics if `size` is not positive (> 0).
     #[must_use]
+    #[allow(clippy::too_many_arguments)] // Expected for FFI-compatible structs
     pub fn new(
         instrument_id: InstrumentId,
         price: Price,
         size: Quantity,
         aggressor_side: AggressorSide,
         trade_id: TradeId,
+        mint: SolanaAddress,
+        user: SolanaAddress,
         ts_event: UnixNanos,
         ts_init: UnixNanos,
     ) -> Self {
@@ -107,6 +119,8 @@ impl TradeTick {
             size,
             aggressor_side,
             trade_id,
+            mint,
+            user,
             ts_event,
             ts_init,
         )
@@ -135,6 +149,8 @@ impl TradeTick {
         metadata.insert("size".to_string(), FIXED_SIZE_BINARY.to_string());
         metadata.insert("aggressor_side".to_string(), "UInt8".to_string());
         metadata.insert("trade_id".to_string(), "Utf8".to_string());
+        metadata.insert("mint".to_string(), "Utf8".to_string()); // Added
+        metadata.insert("user".to_string(), "Utf8".to_string()); // Added
         metadata.insert("ts_event".to_string(), "UInt64".to_string());
         metadata.insert("ts_init".to_string(), "UInt64".to_string());
         metadata
@@ -145,12 +161,14 @@ impl Display for TradeTick {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{}", // Added mint and user
             self.instrument_id,
             self.price,
             self.size,
             self.aggressor_side,
             self.trade_id,
+            self.mint,
+            self.user,
             self.ts_event,
         )
     }

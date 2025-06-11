@@ -36,6 +36,9 @@ impl TradeTickDataWrangler {
         let instrument_id = InstrumentId::from_str(instrument_id).map_err(to_pyvalue_err)?;
         let metadata = TradeTick::get_metadata(&instrument_id, price_precision, size_precision);
 
+        println!("My custom built Nautilus Trader! - TradeTickDataWrangler for instrument: {}", instrument_id);
+        eprintln!("My custom built Nautilus Trader! - TradeTickDataWrangler for instrument: {}", instrument_id);
+        
         Ok(Self {
             instrument_id,
             price_precision,

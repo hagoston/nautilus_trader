@@ -15,6 +15,17 @@
 #define DEPTH10_LEN 10
 
 /**
+ * The maximum number of data characters for a `SolanaAddress` string value.
+ * Solana addresses are typically 32-44 characters long.
+ */
+#define SOLANA_ADDRESS_MAX_CHARS 44
+
+/**
+ * The total buffer length for a `SolanaAddress` byte array (including null terminator).
+ */
+#define SOLANA_ADDRESS_BUFFER_LEN (SOLANA_ADDRESS_MAX_CHARS + 1)
+
+/**
  * The maximum length of ASCII characters for a `TradeId` string value (including null terminator).
  */
 #define TRADE_ID_LEN 37
@@ -1139,6 +1150,17 @@ typedef struct TradeId_t {
 } TradeId_t;
 
 /**
+ * Represents a valid Solana address.
+ * A Solana address is typically a Base58 encoded public key of 32-44 characters.
+ */
+typedef struct SolanaAddress_t {
+    /**
+     * The Solana address value as a fixed-length C string byte array (includes null terminator).
+     */
+    uint8_t value[SOLANA_ADDRESS_BUFFER_LEN];
+} SolanaAddress_t;
+
+/**
  * Represents a trade tick in a market.
  */
 typedef struct TradeTick_t {
@@ -1162,6 +1184,14 @@ typedef struct TradeTick_t {
      * The trade match ID (assigned by the venue).
      */
     struct TradeId_t trade_id;
+    /**
+     * The mint address of the token involved in the trade (e.g. for pump.fun).
+     */
+    struct SolanaAddress_t mint;
+    /**
+     * The user address involved in the trade (e.g. for pump.fun).
+     */
+    struct SolanaAddress_t user;
     /**
      * UNIX timestamp (nanoseconds) when the trade event occurred.
      */
@@ -2129,6 +2159,8 @@ struct TradeTick_t trade_tick_new(struct InstrumentId_t instrument_id,
                                   struct Quantity_t size,
                                   enum AggressorSide aggressor_side,
                                   struct TradeId_t trade_id,
+                                  struct SolanaAddress_t mint,
+                                  struct SolanaAddress_t user,
                                   uint64_t ts_event,
                                   uint64_t ts_init);
 
@@ -2708,6 +2740,19 @@ uint64_t order_list_id_hash(const struct OrderListId_t *id);
 struct PositionId_t position_id_new(const char *ptr);
 
 uint64_t position_id_hash(const struct PositionId_t *id);
+
+/**
+ * Returns a Nautilus SolanaAddress from a C string pointer.
+ *
+ * # Safety
+ *
+ * Assumes `ptr` is a valid C string pointer.
+ */
+struct SolanaAddress_t solana_address_new(const char *ptr);
+
+uint64_t solana_address_hash(const struct SolanaAddress_t *solana_address);
+
+const char *solana_address_to_cstr(const struct SolanaAddress_t *solana_address);
 
 /**
  * Returns a Nautilus identifier from a C string pointer.

@@ -33,6 +33,11 @@ fn main() {
     println!("cargo:rerun-if-changed=cbindgen.toml");
     println!("cargo:rerun-if-changed=cbindgen_cython.toml");
     println!("cargo:rerun-if-changed=../Cargo.toml");
+println!("cargo:rerun-if-changed=src/lib.rs"); // Ensure lib.rs changes trigger re-run
+    println!("cargo:rerun-if-changed=src/ffi/mod.rs"); // Ensure ffi module changes trigger re-run
+    println!("cargo:rerun-if-changed=src/ffi/data.rs"); // Ensure ffi/data.rs changes trigger re-run
+    println!("cargo:rerun-if-changed=src/data/trade.rs"); // Ensure TradeTick struct changes trigger re-run
+    println!("cargo:rerun-if-changed=src/identifiers/solana_address.rs"); // Ensure SolanaAddress struct changes trigger re-run
 
     #[cfg(feature = "ffi")]
     if env::var("CARGO_FEATURE_FFI").is_ok() {

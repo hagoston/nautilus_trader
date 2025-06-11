@@ -28,7 +28,7 @@ use crate::{
         AggregationSource, AggressorSide, BarAggregation, BookAction, InstrumentCloseType,
         MarketStatusAction, OrderSide, PriceType,
     },
-    identifiers::{InstrumentId, Symbol, TradeId, Venue},
+    identifiers::{InstrumentId, SolanaAddress, Symbol, TradeId, Venue}, // Added SolanaAddress
     types::{Price, Quantity},
 };
 
@@ -56,6 +56,8 @@ impl Default for TradeTick {
             size: Quantity::from(100_000),
             aggressor_side: AggressorSide::Buyer,
             trade_id: TradeId::new("123456789"),
+            mint: SolanaAddress::new("Mint111111111111111111111111111111111111"), // Added
+            user: SolanaAddress::new("User111111111111111111111111111111111111"), // Added
             ts_event: UnixNanos::default(),
             ts_init: UnixNanos::default(),
         }
@@ -315,6 +317,8 @@ pub fn stub_trade_ethusdt_buyer() -> TradeTick {
         size: Quantity::from("1.00000000"),
         aggressor_side: AggressorSide::Buyer,
         trade_id: TradeId::new("123456789"),
+        mint: SolanaAddress::new("Mint111111111111111111111111111111111111"), // Added
+        user: SolanaAddress::new("User111111111111111111111111111111111111"), // Added
         ts_event: UnixNanos::default(),
         ts_init: UnixNanos::from(1),
     }

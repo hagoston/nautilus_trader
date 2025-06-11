@@ -41,7 +41,7 @@ from nautilus_trader.model.data cimport BookOrder
 from nautilus_trader.model.data cimport OrderBookDelta
 from nautilus_trader.model.data cimport QuoteTick
 from nautilus_trader.model.data cimport TradeTick
-from nautilus_trader.model.identifiers cimport TradeId
+from nautilus_trader.model.identifiers cimport TradeId, SolanaAddress
 from nautilus_trader.model.instruments.base cimport Instrument
 from nautilus_trader.model.objects cimport Price
 from nautilus_trader.model.objects cimport Quantity
@@ -518,6 +518,7 @@ cdef class TradeTickDataWrangler:
     """
 
     def __init__(self, Instrument instrument not None):
+        print(f'CUSTOM BUILD:: nautilus_trader/persistence/wranglers.pyx/TradeTickDataWrangler()\n')
         self.instrument = instrument
 
     def process(self, data: pd.DataFrame, ts_init_delta: int=0, bint is_raw=False):
@@ -561,6 +562,8 @@ cdef class TradeTickDataWrangler:
             data["quantity"],
             self._create_side_if_not_exist(data),
             data["trade_id"].astype(str),
+            data["mint"].astype(str),
+            data["user"].astype(str),
             ts_events,
             ts_inits,
         ))
@@ -685,17 +688,22 @@ cdef class TradeTickDataWrangler:
         self,
         double price,
         double size,
-        AggressorSide aggressor_side,
+        AggressorSide aggressor_side, # Reverted
         str trade_id,
+        str mint_address_str,
+        str user_address_str,
         uint64_t ts_event,
         uint64_t ts_init,
     ):
+        # No cast needed now for aggressor_side
         return TradeTick(
             self.instrument.id,
             Price(price, self.instrument.price_precision),
             Quantity(size, self.instrument.size_precision),
             aggressor_side,
             TradeId(trade_id),
+            SolanaAddress(mint_address_str),
+            SolanaAddress(user_address_str),
             ts_event,
             ts_init,
         )

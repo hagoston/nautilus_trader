@@ -151,6 +151,7 @@ from nautilus_trader.model.identifiers cimport InstrumentId
 from nautilus_trader.model.identifiers cimport Symbol
 from nautilus_trader.model.identifiers cimport TradeId
 from nautilus_trader.model.identifiers cimport Venue
+from nautilus_trader.model.identifiers cimport SolanaAddress  # Added
 from nautilus_trader.model.objects cimport Price
 from nautilus_trader.model.objects cimport Quantity
 from nautilus_trader.model.objects cimport price_new
@@ -4336,6 +4337,10 @@ cdef class TradeTick(Data):
         The trade aggressor side.
     trade_id : TradeId
         The trade match ID (assigned by the venue).
+    mint : SolanaAddress
+        The mint address of the token.
+    user : SolanaAddress
+        The user address for the trade.
     ts_event : uint64_t
         UNIX timestamp (nanoseconds) when the tick event occurred.
     ts_init : uint64_t
@@ -4357,6 +4362,8 @@ cdef class TradeTick(Data):
         Quantity size not None,
         AggressorSide aggressor_side,
         TradeId trade_id not None,
+        SolanaAddress mint not None,  # Added
+        SolanaAddress user not None,  # Added
         uint64_t ts_event,
         uint64_t ts_init,
     ) -> None:
@@ -4368,6 +4375,8 @@ cdef class TradeTick(Data):
             size._mem,
             aggressor_side,
             trade_id._mem,
+            mint._mem,  # Added
+            user._mem,  # Added
             ts_event,
             ts_init,
         )
@@ -4381,6 +4390,8 @@ cdef class TradeTick(Data):
             self._mem.size.precision,
             self._mem.aggressor_side,
             self.trade_id.value,
+            self.mint.value,  # Added
+            self.user.value,  # Added
             self.ts_event,
             self.ts_init,
         )
@@ -4390,6 +4401,8 @@ cdef class TradeTick(Data):
         cdef Price_t price = price_new(state[1], state[2])
         cdef Quantity_t size = quantity_new(state[3], state[4])
         Condition.positive_int(size.raw, "size")
+        cdef SolanaAddress mint = SolanaAddress(state[7])  # Added
+        cdef SolanaAddress user = SolanaAddress(state[8])  # Added
 
         self._mem = trade_tick_new(
             instrument_id._mem,
@@ -4397,8 +4410,10 @@ cdef class TradeTick(Data):
             size,
             state[5],
             TradeId(state[6])._mem,
-            state[7],
-            state[8],
+            mint._mem,  # Added
+            user._mem,  # Added
+            state[9],  # Adjusted index
+            state[10], # Adjusted index
         )
 
     def __eq__(self, TradeTick other) -> bool:
@@ -4439,6 +4454,30 @@ cdef class TradeTick(Data):
 
         """
         return TradeId.from_mem_c(self._mem.trade_id)
+
+    @property
+    def mint(self) -> SolanaAddress:
+        """
+        Return the mint address for the trade.
+
+        Returns
+        -------
+        SolanaAddress
+
+        """
+        return SolanaAddress.from_mem_c(self._mem.mint)
+
+    @property
+    def user(self) -> SolanaAddress:
+        """
+        Return the user address for the trade.
+
+        Returns
+        -------
+        SolanaAddress
+
+        """
+        return SolanaAddress.from_mem_c(self._mem.user)
 
     @property
     def price(self) -> Price:
@@ -4521,6 +4560,8 @@ cdef class TradeTick(Data):
         uint8_t size_prec,
         AggressorSide aggressor_side,
         TradeId trade_id,
+        SolanaAddress mint,  # Added
+        SolanaAddress user,  # Added
         uint64_t ts_event,
         uint64_t ts_init,
     ):
@@ -4536,6 +4577,8 @@ cdef class TradeTick(Data):
             size,
             aggressor_side,
             trade_id._mem,
+            mint._mem,  # Added
+            user._mem,  # Added
             ts_event,
             ts_init,
         )
@@ -4550,11 +4593,13 @@ cdef class TradeTick(Data):
         double[:] sizes_raw,
         uint8_t[:] aggressor_sides,
         list[str] trade_ids,
+        list[str] mints,  # Added
+        list[str] users,  # Added
         uint64_t[:] ts_events,
         uint64_t[:] ts_inits,
     ):
         Condition.is_true(len(prices_raw) == len(sizes_raw) == len(aggressor_sides) == len(trade_ids) ==
-                       len(ts_events) == len(ts_inits), "Array lengths must be equal")
+                       len(mints) == len(users) == len(ts_events) == len(ts_inits), "Array lengths must be equal")  # Updated condition
 
         cdef int count = ts_events.shape[0]
         cdef list[TradeTick] trades = []
@@ -4565,6 +4610,8 @@ cdef class TradeTick(Data):
             Quantity size
             AggressorSide aggressor_side
             TradeId trade_id
+            SolanaAddress mint  # Added
+            SolanaAddress user  # Added
             TradeTick trade
         for i in range(count):
             price = Price(prices_raw[i], price_prec)
@@ -4572,6 +4619,8 @@ cdef class TradeTick(Data):
             Condition.positive_int(size.raw, "size")
             aggressor_side = <AggressorSide>aggressor_sides[i]
             trade_id = TradeId(trade_ids[i])
+            mint = SolanaAddress(mints[i])  # Added
+            user = SolanaAddress(users[i])  # Added
             trade = TradeTick.__new__(TradeTick)
             trade._mem = trade_tick_new(
                 instrument_id._mem,
@@ -4579,6 +4628,8 @@ cdef class TradeTick(Data):
                 size._mem,
                 aggressor_side,
                 trade_id._mem,
+                mint._mem,  # Added
+                user._mem,  # Added
                 ts_events[i],
                 ts_inits[i],
             )
@@ -4595,6 +4646,8 @@ cdef class TradeTick(Data):
         double[:] sizes_raw,
         uint8_t[:] aggressor_sides,
         list[str] trade_ids,
+        list[str] mints,  # Added
+        list[str] users,  # Added
         uint64_t[:] ts_events,
         uint64_t[:] ts_inits,
     ) -> list[TradeTick]:
@@ -4606,6 +4659,8 @@ cdef class TradeTick(Data):
             sizes_raw,
             aggressor_sides,
             trade_ids,
+            mints,  # Added
+            users,  # Added
             ts_events,
             ts_inits,
         )
@@ -4661,6 +4716,8 @@ cdef class TradeTick(Data):
             size=Quantity.from_str_c(values["size"]),
             aggressor_side=aggressor_side_from_str(values["aggressor_side"]),
             trade_id=TradeId(values["trade_id"]),
+            mint=SolanaAddress(values["mint"]),  # Added
+            user=SolanaAddress(values["user"]),  # Added
             ts_event=values["ts_event"],
             ts_init=values["ts_init"],
         )
@@ -4675,6 +4732,8 @@ cdef class TradeTick(Data):
             "size": str(obj.size),
             "aggressor_side": aggressor_side_to_str(obj._mem.aggressor_side),
             "trade_id": str(obj.trade_id),
+            "mint": str(obj.mint),  # Added
+            "user": str(obj.user),  # Added
             "ts_event": obj.ts_event,
             "ts_init": obj.ts_init,
         }
@@ -4688,6 +4747,8 @@ cdef class TradeTick(Data):
         uint8_t size_prec,
         AggressorSide aggressor_side,
         TradeId trade_id,
+        SolanaAddress mint,  # Added
+        SolanaAddress user,  # Added
         uint64_t ts_event,
         uint64_t ts_init,
     ) -> TradeTick:
@@ -4710,6 +4771,10 @@ cdef class TradeTick(Data):
             The trade aggressor side.
         trade_id : TradeId
             The trade match ID (assigned by the venue).
+        mint : SolanaAddress
+            The mint address of the token.
+        user : SolanaAddress
+            The user address for the trade.
         ts_event : uint64_t
             UNIX timestamp (nanoseconds) when the tick event occurred.
         ts_init : uint64_t
@@ -4728,6 +4793,8 @@ cdef class TradeTick(Data):
             size_prec,
             aggressor_side,
             trade_id,
+            mint,  # Added
+            user,  # Added
             ts_event,
             ts_init,
         )
@@ -4796,6 +4863,8 @@ cdef class TradeTick(Data):
                 nautilus_pyo3.Quantity.from_raw(trade._mem.size.raw, size_prec),
                 nautilus_pyo3.AggressorSide(aggressor_side_to_str(trade._mem.aggressor_side)),
                 nautilus_pyo3.TradeId(trade.trade_id.value),
+                nautilus_pyo3.SolanaAddress(trade.mint.value),  # Added
+                nautilus_pyo3.SolanaAddress(trade.user.value),  # Added
                 trade._mem.ts_event,
                 trade._mem.ts_init,
             )
@@ -4857,6 +4926,8 @@ cdef class TradeTick(Data):
             nautilus_pyo3.Quantity.from_raw(self._mem.size.raw, self._mem.size.precision),
             nautilus_pyo3.AggressorSide(aggressor_side_to_str(self._mem.aggressor_side)),
             nautilus_pyo3.TradeId(self.trade_id.value),
+            nautilus_pyo3.SolanaAddress(self.mint.value),  # Added
+            nautilus_pyo3.SolanaAddress(self.user.value),  # Added
             self._mem.ts_event,
             self._mem.ts_init,
         )
