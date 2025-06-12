@@ -900,6 +900,33 @@ impl GetTsInit for Bar {
     }
 }
 
+/// Represents a `Bar` that is specifically associated with a given Solana `mint_address`.
+///
+/// This struct is used when bar aggregation needs to be performed separately for different
+/// mint addresses, even if they pertain to the same primary trading instrument.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MintSpecificBar {
+    /// The underlying bar data (OHLCV, timestamps).
+    pub bar: Bar,
+    /// The optional 32-byte Solana mint address this bar is specific to.
+    /// `None` could indicate a bar aggregated from trades without a mint address
+    /// or a general aggregate if filtering was not by mint.
+    pub mint_address: Option<[u8; 32]>,
+}
+
+impl MintSpecificBar {
+    /// Creates a new `MintSpecificBar`.
+    ///
+    /// # Parameters
+    ///
+    /// - `bar`: The underlying `Bar` data.
+    /// - `mint_address`: An `Option<[u8; 32]>` representing the Solana mint address.
+    pub fn new(bar: Bar, mint_address: Option<[u8; 32]>) -> Self {
+        Self { bar, mint_address }
+    }
+}
+
+
 ////////////////////////////////////////////////////////////////////////////////
 // Tests
 ////////////////////////////////////////////////////////////////////////////////
@@ -910,6 +937,44 @@ mod tests {
 
     use super::*;
     use crate::identifiers::{Symbol, Venue};
+    // Assuming a way to get a Bar instance, e.g. from stubs or default if available
+    // For this test, we'll use Bar::default() if available, or construct one.
+    // If stubs::stub_bar() exists and is suitable, that's better.
+    // Let's try to use Bar::default() or construct a simple one.
+    // from crate::model::data::stubs::stub_bar; // This was in the prompt, let's see if it exists
+
+    // Helper to create a default bar for testing, as stubs might not be directly accessible here
+    // or might be part of a larger testkit.
+    fn default_test_bar() -> Bar {
+        let bar_spec = BarSpecification::new(1, BarAggregation::Minute, PriceType::Last);
+        let bar_type = BarType::new(
+            InstrumentId::from_str("TEST.ID-1-MINUTE-LAST-INTERNAL").unwrap(),
+            bar_spec,
+            AggregationSource::Internal,
+        );
+        Bar::new(
+            bar_type,
+            Price::from_str("100.0").unwrap(),
+            Price::from_str("105.0").unwrap(),
+            Price::from_str("95.0").unwrap(),
+            Price::from_str("102.0").unwrap(),
+            Quantity::from_str("1000").unwrap(),
+            UnixNanos::from(1_000_000_000),
+            UnixNanos::from(1_000_000_000 + 60 * 1_000_000_000 -1),
+        )
+    }
+
+
+    #[test]
+    fn test_create_mint_specific_bar() {
+        let bar = default_test_bar();
+        let mint_address = Some([1u8; 32]);
+        let msb = MintSpecificBar::new(bar, mint_address);
+
+        assert_eq!(msb.mint_address, mint_address);
+        assert_eq!(msb.bar.open, bar.open); // Basic check
+        assert_eq!(msb.bar.instrument_id(), bar.instrument_id());
+    }
 
     #[rstest]
     fn test_bar_specification_new_invalid() {

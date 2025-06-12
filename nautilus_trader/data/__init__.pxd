@@ -12,3 +12,6 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
+
+from .dynamic_aggregation cimport DynamicAggregatorManager
+# Add other cimports from the data package if needed in the future

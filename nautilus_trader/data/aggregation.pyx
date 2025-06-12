@@ -13,8 +13,10 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
+import base58 # Added for mint_address decoding
 from decimal import Decimal
 from typing import Callable
+from libc.stdint cimport uint8_t # For type casting if needed
 
 import pandas as pd
 
@@ -279,6 +281,14 @@ cdef class BarAggregator:
         The bar handler for the aggregator.
     await_partial : bool, default False
         If the aggregator should await an initial partial bar prior to aggregating.
+    mint_address_str : str, optional
+        A Base58 encoded string representing a 32-byte Solana mint address.
+        If provided, the aggregator will only process `TradeTick` objects
+        that have a matching `mint_address`. Trades with no mint address or a
+        non-matching address will be ignored. If `None` (default), all trades
+        are considered for aggregation. An invalid Base58 string or one that
+        does not decode to 32 bytes will result in a warning, and the filter
+        will not be applied.
 
     Raises
     ------
@@ -292,6 +302,7 @@ cdef class BarAggregator:
         BarType bar_type not None,
         handler not None: Callable[[Bar], None],
         bint await_partial = False,
+        str mint_address_str = None, # New parameter
     ) -> None:
         Condition.equal(instrument.id, bar_type.instrument_id, "instrument.id", "bar_type.instrument_id")
 
@@ -306,6 +317,23 @@ cdef class BarAggregator:
         )
         self._batch_mode = False
         self.is_running = False # is_running means that an aggregator receives data from the message bus
+
+        # Mint address processing for filter
+        self._has_filter_mint_address = False
+        # Instead of cdef uint8_t self._filter_mint_address_bytes[32], use a Python tuple/list for .pyx
+        self._filter_mint_address_bytes_tuple = None # To store as tuple of ints
+
+        if mint_address_str is not None:
+            try:
+                decoded_bytes = base58.b58decode(mint_address_str)
+                if len(decoded_bytes) == 32:
+                    # Store as a tuple of ints for comparison with tick._mem.mint_address
+                    self._filter_mint_address_bytes_tuple = tuple(decoded_bytes)
+                    self._has_filter_mint_address = True
+                else:
+                    self._log.warn(f"Decoded mint_address_str for filter is not 32 bytes long: {mint_address_str}. Filter disabled.")
+            except Exception as e:
+                self._log.warn(f"Failed to decode mint_address_str for filter '{mint_address_str}': {e}. Filter disabled.")
 
     def start_batch_update(self, handler: Callable[[Bar], None], uint64_t time_ns) -> None:
         self._batch_mode = True
@@ -355,6 +383,24 @@ cdef class BarAggregator:
         Condition.not_none(tick, "tick")
 
         if not self._await_partial:
+            # Apply mint_address filter (this is the new logic from the prompt)
+            if self._has_filter_mint_address: # Using the name from my __init__ correction
+                # Assuming tick is TradeTick and its _mem (TradeTick_t) has .has_mint_address and .mint_address[32]
+                # This relies on Step 1 (TradeTick Cython binding update) correctly setting these in tick._mem
+                if not tick._mem.has_mint_address:
+                    return # Ignore trades with no mint_address if filter is active
+
+                # Perform byte-wise comparison of the mint addresses
+                cdef bint match = True
+                cdef int i # Cython needs explicit declaration for loop var if used in C-style
+                for i in range(32):
+                    if tick._mem.mint_address[i] != self._filter_mint_address_bytes_tuple[i]: # Compare with stored tuple
+                        match = False
+                        break
+                if not match:
+                    return # Mint addresses do not match, ignore trade
+
+            # Original logic follows if not filtered out:
             self._apply_update(
                 price=tick.price,
                 size=tick.size,
@@ -424,6 +470,9 @@ cdef class TickBarAggregator(BarAggregator):
         The bar type for the aggregator.
     handler : Callable[[Bar], None]
         The bar handler for the aggregator.
+    mint_address_str : str, optional
+        Optional Base58 encoded mint address to filter trades by.
+        See `BarAggregator` for more details.
 
     Raises
     ------
@@ -436,11 +485,13 @@ cdef class TickBarAggregator(BarAggregator):
         Instrument instrument not None,
         BarType bar_type not None,
         handler not None: Callable[[Bar], None],
+        str mint_address_str=None, # New parameter for __init__
     ) -> None:
         super().__init__(
             instrument=instrument,
             bar_type=bar_type.standard(),
             handler=handler,
+            mint_address_str=mint_address_str, # Pass to parent
         )
 
     cdef void _apply_update(self, Price price, Quantity size, uint64_t ts_event):
@@ -471,6 +522,9 @@ cdef class VolumeBarAggregator(BarAggregator):
         The bar type for the aggregator.
     handler : Callable[[Bar], None]
         The bar handler for the aggregator.
+    mint_address_str : str, optional
+        Optional Base58 encoded mint address to filter trades by.
+        See `BarAggregator` for more details.
 
     Raises
     ------
@@ -483,11 +537,13 @@ cdef class VolumeBarAggregator(BarAggregator):
         Instrument instrument not None,
         BarType bar_type not None,
         handler not None: Callable[[Bar], None],
+        str mint_address_str=None, # New parameter for __init__
     ) -> None:
         super().__init__(
             instrument=instrument,
             bar_type=bar_type.standard(),
             handler=handler,
+            mint_address_str=mint_address_str, # Pass to parent
         )
 
     cdef void _apply_update(self, Price price, Quantity size, uint64_t ts_event):
@@ -566,6 +622,9 @@ cdef class ValueBarAggregator(BarAggregator):
         The bar type for the aggregator.
     handler : Callable[[Bar], None]
         The bar handler for the aggregator.
+    mint_address_str : str, optional
+        Optional Base58 encoded mint address to filter trades by.
+        See `BarAggregator` for more details.
 
     Raises
     ------
@@ -578,11 +637,13 @@ cdef class ValueBarAggregator(BarAggregator):
         Instrument instrument not None,
         BarType bar_type not None,
         handler not None: Callable[[Bar], None],
+        str mint_address_str=None, # New parameter for __init__
     ) -> None:
         super().__init__(
             instrument=instrument,
             bar_type=bar_type.standard(),
             handler=handler,
+            mint_address_str=mint_address_str, # Pass to parent
         )
 
         self._cum_value = Decimal(0)  # Cumulative value
@@ -697,6 +758,9 @@ cdef class TimeBarAggregator(BarAggregator):
         The origin time offset.
     composite_bar_build_delay : int, default 15
         The time delay (microseconds) before building and emitting a composite bar type.
+    mint_address_str : str, optional
+        Optional Base58 encoded mint address to filter trades by.
+        See `BarAggregator` for more details.
 
     Raises
     ------
@@ -716,11 +780,13 @@ cdef class TimeBarAggregator(BarAggregator):
         bint build_with_no_updates = True,
         object time_bars_origin: pd.Timedelta | pd.DateOffset = None,
         int composite_bar_build_delay = 15, # in microsecond
+        str mint_address_str=None, # New parameter for __init__
     ) -> None:
         super().__init__(
             instrument=instrument,
             bar_type=bar_type.standard(),
             handler=handler,
+            mint_address_str=mint_address_str, # Pass to parent
         )
 
         self._clock = clock

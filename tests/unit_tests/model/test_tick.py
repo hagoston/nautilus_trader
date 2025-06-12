@@ -14,6 +14,7 @@
 # -------------------------------------------------------------------------------------------------
 
 import pickle
+import pytest # For testing warnings or exceptions if needed
 
 from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.model import convert_to_raw_int
@@ -32,6 +33,14 @@ from nautilus_trader.test_kit.rust.data_pyo3 import TestDataProviderPyo3
 
 
 AUDUSD_SIM = TestInstrumentProvider.default_fx_ccy("AUD/USD")
+
+# Mint Address Constants for testing
+MINT_ADDR_VALID_1 = "So11111111111111111111111111111111111111112" # SOL
+MINT_ADDR_VALID_2 = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" # USDC
+MINT_ADDR_INVALID_SHORT = "Short"
+MINT_ADDR_INVALID_B58 = "ThisIsNotValidBase58%!"
+# A valid Base58 string but not 32 bytes when decoded
+MINT_ADDR_INVALID_LEN = "1111111111111111111111111" # Too short after decode
 
 
 class TestQuoteTick:
@@ -264,7 +273,77 @@ class TestTradeTick:
         # Act, Assert
         assert isinstance(hash(trade), int)
         assert str(trade) == "AUD/USD.SIM,1.00000,50000,BUYER,123456789,1"
-        assert repr(trade) == "TradeTick(AUD/USD.SIM,1.00000,50000,BUYER,123456789,1)"
+        # Repr is updated in Cython to include mint_address if present
+        assert repr(trade) == "TradeTick(AUD/USD.SIM,1.00000,50000,BUYER,123456789,1)" # No mint_address
+
+    def test_creation_with_mint_address(self):
+        trade_with_addr = TradeTick(
+            instrument_id=AUDUSD_SIM.id, price=Price(1, 5), size=Quantity(100, 0),
+            aggressor_side=AggressorSide.BUYER, trade_id=TradeId("t1"),
+            ts_event=1, ts_init=2, mint_address_str=MINT_ADDR_VALID_1
+        )
+        assert trade_with_addr.mint_address == MINT_ADDR_VALID_1
+        # Check internal C struct values if possible and if Cython binding exposes them,
+        # For now, rely on property and subsequent tests.
+        # assert trade_with_addr._mem.has_mint_address == True (Cannot access _mem directly from Python)
+
+        trade_no_addr = TradeTick(
+            instrument_id=AUDUSD_SIM.id, price=Price(1, 5), size=Quantity(100, 0),
+            aggressor_side=AggressorSide.BUYER, trade_id=TradeId("t2"),
+            ts_event=1, ts_init=2, mint_address_str=None
+        )
+        assert trade_no_addr.mint_address is None
+
+    def test_creation_with_invalid_mint_address(self):
+        # Test with invalid Base58 string
+        # Expect warning, mint_address should be None
+        trade_invalid_b58 = TradeTick(
+            instrument_id=AUDUSD_SIM.id, price=Price(1, 5), size=Quantity(100, 0),
+            aggressor_side=AggressorSide.BUYER, trade_id=TradeId("t_inv_b58"),
+            ts_event=1, ts_init=2, mint_address_str=MINT_ADDR_INVALID_B58
+        )
+        assert trade_invalid_b58.mint_address is None
+
+        # Test with Base58 string that decodes to wrong length
+        trade_invalid_len = TradeTick(
+            instrument_id=AUDUSD_SIM.id, price=Price(1, 5), size=Quantity(100, 0),
+            aggressor_side=AggressorSide.BUYER, trade_id=TradeId("t_inv_len"),
+            ts_event=1, ts_init=2, mint_address_str=MINT_ADDR_INVALID_LEN
+        )
+        assert trade_invalid_len.mint_address is None
+
+        # Test with a string that is too short to be 32 bytes after decode
+        trade_short_len = TradeTick(
+            instrument_id=AUDUSD_SIM.id, price=Price(1, 5), size=Quantity(100, 0),
+            aggressor_side=AggressorSide.BUYER, trade_id=TradeId("t_short_len"),
+            ts_event=1, ts_init=2, mint_address_str=MINT_ADDR_INVALID_SHORT
+        )
+        assert trade_short_len.mint_address is None
+
+
+    def test_mint_address_property(self):
+        trade = TradeTick(
+            instrument_id=AUDUSD_SIM.id, price=Price(1, 5), size=Quantity(100, 0),
+            aggressor_side=AggressorSide.BUYER, trade_id=TradeId("prop_test"),
+            ts_event=1, ts_init=2, mint_address_str=MINT_ADDR_VALID_1
+        )
+        assert trade.mint_address == MINT_ADDR_VALID_1
+
+        trade_none = TradeTick(
+            instrument_id=AUDUSD_SIM.id, price=Price(1, 5), size=Quantity(100, 0),
+            aggressor_side=AggressorSide.BUYER, trade_id=TradeId("prop_test_none"),
+            ts_event=1, ts_init=2, mint_address_str=None
+        )
+        assert trade_none.mint_address is None
+
+    def test_repr_with_mint_address(self):
+        trade = TradeTick(
+            instrument_id=AUDUSD_SIM.id, price=Price(1,5), size=Quantity(1,0),
+            aggressor_side=AggressorSide.BUYER, trade_id=TradeId("repr"),
+            ts_event=1, ts_init=2, mint_address_str=MINT_ADDR_VALID_1
+        )
+        expected_repr = f"TradeTick(AUD/USD.SIM,1.00000,1,BUYER,repr,1, mint_address='{MINT_ADDR_VALID_1}')"
+        assert repr(trade) == expected_repr
 
     def test_to_dict_returns_expected_dict(self):
         # Arrange
@@ -291,7 +370,17 @@ class TestTradeTick:
             "trade_id": "123456789",
             "ts_event": 1,
             "ts_init": 2,
+            "mint_address": None,  # Added for existing test
         }
+
+    def test_to_dict_with_mint_address(self):
+        trade = TradeTick(
+            instrument_id=AUDUSD_SIM.id, price=Price(1,5), size=Quantity(1,0),
+            aggressor_side=AggressorSide.BUYER, trade_id=TradeId("dict_test"),
+            ts_event=1, ts_init=2, mint_address_str=MINT_ADDR_VALID_1
+        )
+        result = TradeTick.to_dict(trade)
+        assert result["mint_address"] == MINT_ADDR_VALID_1
 
     def test_from_dict_returns_expected_tick(self):
         # Arrange
@@ -310,6 +399,36 @@ class TestTradeTick:
 
         # Assert
         assert result == trade
+
+    def test_from_dict_with_mint_address(self):
+        data = {
+            "type": "TradeTick", # Not strictly used by from_dict but good for completeness
+            "instrument_id": "AUD/USD.SIM",
+            "price": "1.00000",
+            "size": "10000",
+            "aggressor_side": "BUYER",
+            "trade_id": "from_dict_ma",
+            "ts_event": 1,
+            "ts_init": 2,
+            "mint_address": MINT_ADDR_VALID_1,
+        }
+        trade = TradeTick.from_dict(data)
+        assert trade.instrument_id == AUDUSD_SIM.id
+        assert trade.price == Price("1.00000", 5)
+        assert trade.size == Quantity(10000, 0)
+        assert trade.aggressor_side == AggressorSide.BUYER
+        assert trade.trade_id == TradeId("from_dict_ma")
+        assert trade.ts_event == 1
+        assert trade.ts_init == 2
+        assert trade.mint_address == MINT_ADDR_VALID_1
+
+        data_none = {
+            "instrument_id": "AUD/USD.SIM", "price": "1.0", "size": "1",
+            "aggressor_side": "SELL", "trade_id": "from_dict_none",
+            "ts_event": 3, "ts_init": 4, "mint_address": None,
+        }
+        trade_none = TradeTick.from_dict(data_none)
+        assert trade_none.mint_address is None
 
     def test_from_pyo3(self):
         # Arrange
@@ -374,10 +493,56 @@ class TestTradeTick:
 
         # Assert
         assert unpickled == trade
+        # Assuming original test had no mint_address, so repr matches
         assert repr(unpickled) == "TradeTick(AUD/USD.SIM,1.00000,50000,BUYER,123456789,1)"
+
+
+    def test_pickling_with_mint_address(self):
+        trade_with_addr = TradeTick(
+            instrument_id=AUDUSD_SIM.id, price=Price(1,5), size=Quantity(1,0),
+            aggressor_side=AggressorSide.BUYER, trade_id=TradeId("pickle_ma"),
+            ts_event=1, ts_init=2, mint_address_str=MINT_ADDR_VALID_1
+        )
+        pickled = pickle.dumps(trade_with_addr)
+        unpickled = pickle.loads(pickled)
+        assert unpickled == trade_with_addr
+        assert unpickled.mint_address == MINT_ADDR_VALID_1
+        expected_repr = f"TradeTick(AUD/USD.SIM,1.00000,1,BUYER,pickle_ma,1, mint_address='{MINT_ADDR_VALID_1}')"
+        assert repr(unpickled) == expected_repr
+
+        trade_no_addr = TradeTick(
+            instrument_id=AUDUSD_SIM.id, price=Price(1,5), size=Quantity(1,0),
+            aggressor_side=AggressorSide.BUYER, trade_id=TradeId("pickle_none"),
+            ts_event=1, ts_init=2, mint_address_str=None
+        )
+        pickled_none = pickle.dumps(trade_no_addr)
+        unpickled_none = pickle.loads(pickled_none)
+        assert unpickled_none == trade_no_addr
+        assert unpickled_none.mint_address is None
+        expected_repr_none = "TradeTick(AUD/USD.SIM,1.00000,1,BUYER,pickle_none,1)"
+        assert repr(unpickled_none) == expected_repr_none
+
+
+    def test_equality_with_mint_address(self):
+        t1_addr1 = TradeTick(AUDUSD_SIM.id, Price(1,5), Quantity(1,0), AggressorSide.BUYER, TradeId("eq1"), 1, 2, MINT_ADDR_VALID_1)
+        t2_addr1 = TradeTick(AUDUSD_SIM.id, Price(1,5), Quantity(1,0), AggressorSide.BUYER, TradeId("eq1"), 1, 2, MINT_ADDR_VALID_1)
+        t3_addr2 = TradeTick(AUDUSD_SIM.id, Price(1,5), Quantity(1,0), AggressorSide.BUYER, TradeId("eq1"), 1, 2, MINT_ADDR_VALID_2)
+        t4_no_addr = TradeTick(AUDUSD_SIM.id, Price(1,5), Quantity(1,0), AggressorSide.BUYER, TradeId("eq1"), 1, 2, None)
+        t5_no_addr_copy = TradeTick(AUDUSD_SIM.id, Price(1,5), Quantity(1,0), AggressorSide.BUYER, TradeId("eq1"), 1, 2, None)
+
+        # Base fields different
+        t_diff_price = TradeTick(AUDUSD_SIM.id, Price(2,5), Quantity(1,0), AggressorSide.BUYER, TradeId("eq1"), 1, 2, MINT_ADDR_VALID_1)
+
+        assert t1_addr1 == t2_addr1
+        assert t1_addr1 != t3_addr2
+        assert t1_addr1 != t4_no_addr
+        assert t4_no_addr == t5_no_addr_copy
+        assert t1_addr1 != t_diff_price
 
     def test_from_raw_returns_expected_tick(self):
         # Arrange, Act
+        # from_raw in Cython was modified to pass NULL, False for mint_address by default.
+        # So, this test remains valid and tests that mint_address is None.
         trade_id = TradeId("123458")
 
         trade = TradeTick.from_raw(

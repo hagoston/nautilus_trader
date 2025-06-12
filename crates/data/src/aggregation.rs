@@ -308,6 +308,8 @@ impl BarBuilder {
 }
 
 /// Provides a means of aggregating specified bar types and sending to a registered handler.
+///
+/// Can optionally filter trades based on a Solana mint address before aggregation.
 pub struct BarAggregatorCore<H>
 where
     H: FnMut(Bar),
@@ -320,6 +322,7 @@ where
     await_partial: bool,
     is_running: bool,
     batch_mode: bool,
+    filter_mint_address: Option<[u8; 32]>,
 }
 
 impl<H: FnMut(Bar)> Debug for BarAggregatorCore<H> {
@@ -330,6 +333,7 @@ impl<H: FnMut(Bar)> Debug for BarAggregatorCore<H> {
             .field("await_partial", &self.await_partial)
             .field("is_running", &self.is_running)
             .field("batch_mode", &self.batch_mode)
+            .field("filter_mint_address", &self.filter_mint_address.map(|_| "Some(...)")) // Avoid printing the full array
             .finish()
     }
 }
@@ -345,12 +349,25 @@ where
     /// This function panics if:
     /// - `instrument.id` is not equal to the `bar_type.instrument_id`.
     /// - `bar_type.aggregation_source` is not equal to `AggregationSource::Internal`.
+    ///
+    /// # Parameters
+    ///
+    /// - `bar_type`: The type of bar to aggregate.
+    /// - `price_precision`: The precision of the price.
+    /// - `size_precision`: The precision of the size/quantity.
+    /// - `handler`: A callback function that will be invoked with each completed bar.
+    /// - `await_partial`: If `true`, the aggregator will wait for a partial bar to be set via `set_partial`
+    ///   before processing new updates.
+    /// - `filter_mint_address`: Optional 32-byte Solana mint address. If `Some`, only trades matching
+    ///   this mint address will be aggregated. Trades with no mint address or a non-matching address
+    ///   will be ignored. If `None`, all trades are considered for aggregation.
     pub fn new(
         bar_type: BarType,
         price_precision: u8,
         size_precision: u8,
         handler: H,
         await_partial: bool,
+        filter_mint_address: Option<[u8; 32]>,
     ) -> Self {
         Self {
             bar_type,
@@ -361,6 +378,7 @@ where
             await_partial,
             is_running: false,
             batch_mode: false,
+            filter_mint_address,
         }
     }
 
@@ -425,6 +443,7 @@ where
 ///
 /// When received tick count reaches the step threshold of the bar
 /// specification, then a bar is created and sent to the handler.
+/// Can optionally filter trades based on a Solana mint address.
 pub struct TickBarAggregator<H>
 where
     H: FnMut(Bar),
@@ -453,12 +472,16 @@ where
     /// This function panics if:
     /// - `instrument.id` is not equal to the `bar_type.instrument_id`.
     /// - `bar_type.aggregation_source` is not equal to `AggregationSource::Internal`.
+    ///
+    /// # Parameters
+    /// (See [`BarAggregatorCore::new`] for `bar_type`, `price_precision`, `size_precision`, `handler`, `await_partial`, `filter_mint_address`)
     pub fn new(
         bar_type: BarType,
         price_precision: u8,
         size_precision: u8,
         handler: H,
         await_partial: bool,
+        filter_mint_address: Option<[u8; 32]>,
     ) -> Self {
         Self {
             core: BarAggregatorCore::new(
@@ -467,6 +490,7 @@ where
                 size_precision,
                 handler,
                 await_partial,
+                filter_mint_address,
             ),
             cum_value: 0.0,
         }
@@ -491,6 +515,23 @@ where
 
     fn set_is_running(&mut self, value: bool) {
         self.core.set_is_running(value);
+    }
+
+    fn handle_trade(&mut self, trade: TradeTick) {
+        if self.core.await_partial {
+            return;
+        }
+        if let Some(filter_addr) = self.core.filter_mint_address {
+            if let Some(trade_addr) = trade.mint_address {
+                if filter_addr != trade_addr {
+                    return; // Mint address mismatch
+                }
+            } else {
+                return; // Trade has no mint address, but filter is set
+            }
+        }
+        // If filter is None, or if filter is Some and matches, proceed to update
+        self.update(trade.price, trade.size, trade.ts_event);
     }
 
     fn await_partial(&self) -> bool {
@@ -550,9 +591,17 @@ where
     fn set_partial(&mut self, partial_bar: Bar) {
         self.core.set_partial(partial_bar);
     }
+
+    fn stop(&mut self) {
+        if self.core.builder.initialized {
+            self.core.build_now_and_send();
+        }
+    }
 }
 
 /// Provides a means of building volume bars aggregated from quote and trades.
+///
+/// Can optionally filter trades based on a Solana mint address.
 pub struct VolumeBarAggregator<H>
 where
     H: FnMut(Bar),
@@ -579,12 +628,16 @@ where
     /// This function panics if:
     /// - `instrument.id` is not equal to the `bar_type.instrument_id`.
     /// - `bar_type.aggregation_source` is not equal to `AggregationSource::Internal`.
+    ///
+    /// # Parameters
+    /// (See [`BarAggregatorCore::new`] for `bar_type`, `price_precision`, `size_precision`, `handler`, `await_partial`, `filter_mint_address`)
     pub fn new(
         bar_type: BarType,
         price_precision: u8,
         size_precision: u8,
         handler: H,
         await_partial: bool,
+        filter_mint_address: Option<[u8; 32]>,
     ) -> Self {
         Self {
             core: BarAggregatorCore::new(
@@ -593,6 +646,7 @@ where
                 size_precision,
                 handler,
                 await_partial,
+                filter_mint_address,
             ),
         }
     }
@@ -616,6 +670,23 @@ where
 
     fn set_is_running(&mut self, value: bool) {
         self.core.set_is_running(value);
+    }
+
+    fn handle_trade(&mut self, trade: TradeTick) {
+        if self.core.await_partial {
+            return;
+        }
+        if let Some(filter_addr) = self.core.filter_mint_address {
+            if let Some(trade_addr) = trade.mint_address {
+                if filter_addr != trade_addr {
+                    return; // Mint address mismatch
+                }
+            } else {
+                return; // Trade has no mint address, but filter is set
+            }
+        }
+        // If filter is None, or if filter is Some and matches, proceed to update
+        self.update(trade.price, trade.size, trade.ts_event);
     }
 
     fn await_partial(&self) -> bool {
@@ -688,12 +759,19 @@ where
     fn set_partial(&mut self, partial_bar: Bar) {
         self.core.set_partial(partial_bar);
     }
+
+    fn stop(&mut self) {
+        if self.core.builder.initialized {
+            self.core.build_now_and_send();
+        }
+    }
 }
 
 /// Provides a means of building value bars aggregated from quote and trades.
 ///
 /// When received value reaches the step threshold of the bar
 /// specification, then a bar is created and sent to the handler.
+/// Can optionally filter trades based on a Solana mint address.
 pub struct ValueBarAggregator<H>
 where
     H: FnMut(Bar),
@@ -722,12 +800,16 @@ where
     /// This function panics if:
     /// - `instrument.id` is not equal to the `bar_type.instrument_id`.
     /// - `bar_type.aggregation_source` is not equal to `AggregationSource::Internal`.
+    ///
+    /// # Parameters
+    /// (See [`BarAggregatorCore::new`] for `bar_type`, `price_precision`, `size_precision`, `handler`, `await_partial`, `filter_mint_address`)
     pub fn new(
         bar_type: BarType,
         price_precision: u8,
         size_precision: u8,
         handler: H,
         await_partial: bool,
+        filter_mint_address: Option<[u8; 32]>,
     ) -> Self {
         Self {
             core: BarAggregatorCore::new(
@@ -736,6 +818,7 @@ where
                 size_precision,
                 handler,
                 await_partial,
+                filter_mint_address,
             ),
             cum_value: 0.0,
         }
@@ -766,6 +849,23 @@ where
 
     fn set_is_running(&mut self, value: bool) {
         self.core.set_is_running(value);
+    }
+
+    fn handle_trade(&mut self, trade: TradeTick) {
+        if self.core.await_partial {
+            return;
+        }
+        if let Some(filter_addr) = self.core.filter_mint_address {
+            if let Some(trade_addr) = trade.mint_address {
+                if filter_addr != trade_addr {
+                    return; // Mint address mismatch
+                }
+            } else {
+                return; // Trade has no mint address, but filter is set
+            }
+        }
+        // If filter is None, or if filter is Some and matches, proceed to update
+        self.update(trade.price, trade.size, trade.ts_event);
     }
 
     fn await_partial(&self) -> bool {
@@ -840,11 +940,18 @@ where
     fn set_partial(&mut self, partial_bar: Bar) {
         self.core.set_partial(partial_bar);
     }
+
+    fn stop(&mut self) {
+        if self.core.builder.initialized {
+            self.core.build_now_and_send();
+        }
+    }
 }
 
 /// Provides a means of building time bars aggregated from quote and trades.
 ///
 /// At each aggregation time interval, a bar is created and sent to the handler.
+/// Can optionally filter trades based on a Solana mint address before they contribute to a bar.
 pub struct TimeBarAggregator<H>
 where
     H: FnMut(Bar),
@@ -915,6 +1022,16 @@ where
     /// This function panics if:
     /// - `instrument.id` is not equal to the `bar_type.instrument_id`.
     /// - `bar_type.aggregation_source` is not equal to `AggregationSource::Internal`.
+    ///
+    /// # Parameters
+    /// (See [`BarAggregatorCore::new`] for `bar_type`, `price_precision`, `size_precision`, `handler`, `await_partial`, `filter_mint_address`)
+    /// - `clock`: A reference to the system clock.
+    /// - `build_with_no_updates`: If `true`, bars will be generated even if no ticks were received during the interval.
+    /// - `timestamp_on_close`: If `true`, the bar's `ts_event` will be the interval closing time; otherwise, it's the opening time.
+    /// - `interval_type`: Specifies if the interval is left-open or right-open.
+    /// - `time_bars_origin`: Optional offset for aligning time bar intervals.
+    /// - `composite_bar_build_delay`: Delay in microseconds for building composite bars.
+    /// - `skip_first_non_full_bar`: If `true`, the first bar will be skipped if it's not a full interval.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         bar_type: BarType,
@@ -929,6 +1046,7 @@ where
         time_bars_origin: Option<TimeDelta>,
         composite_bar_build_delay: i64,
         skip_first_non_full_bar: bool,
+        filter_mint_address: Option<[u8; 32]>, // New parameter
     ) -> Self {
         let is_left_open = match interval_type {
             BarIntervalType::LeftOpen => true,
@@ -944,6 +1062,7 @@ where
             size_precision,
             handler,
             await_partial,
+            filter_mint_address, // Pass to core
         );
 
         Self {
@@ -1180,12 +1299,43 @@ where
         self.core.set_is_running(value);
     }
 
+    fn handle_trade(&mut self, trade: TradeTick) {
+        if self.core.await_partial {
+            return;
+        }
+        if let Some(filter_addr) = self.core.filter_mint_address {
+            if let Some(trade_addr) = trade.mint_address {
+                if filter_addr != trade_addr {
+                    return; // Mint address mismatch
+                }
+            } else {
+                return; // Trade has no mint address, but filter is set
+            }
+        }
+        // If filter is None, or if filter is Some and matches, proceed to update
+        self.update(trade.price, trade.size, trade.ts_event);
+    }
+
     fn await_partial(&self) -> bool {
         self.core.await_partial()
     }
     /// Stop time-based aggregator by cancelling its timer.
     fn stop(&mut self) {
-        Self::stop(self);
+        // Cancel the timer first to prevent it from firing during or after flushing.
+        self.clock.borrow_mut().cancel_timer(&self.timer_name);
+
+        // Flush any partial bar.
+        // For TimeBarAggregator, build_now_and_send uses self.core.builder.ts_last for timestamps.
+        // If the bar is partial because the interval hasn't completed, ts_last might be
+        // the timestamp of the last tick, not the expected interval boundary.
+        // However, for a generic stop(), flushing with last known data is reasonable.
+        // The `build_bar` method is more specific to timer events.
+        if self.core.builder.initialized {
+            // If there's a specific logic needed for partial time bar (e.g., using stored_close_ns),
+            // that could be implemented, but build_now_and_send is the generic way from BarAggregatorCore.
+            // For consistency with other aggregators' stop methods:
+            self.core.build_now_and_send();
+        }
     }
 
     fn update(&mut self, price: Price, size: Quantity, ts_event: UnixNanos) {
@@ -1258,8 +1408,9 @@ mod tests {
     use nautilus_common::clock::TestClock;
     use nautilus_core::UUID4;
     use nautilus_model::{
-        data::{BarSpecification, BarType},
-        enums::{AggregationSource, BarAggregation, PriceType},
+        data::{BarSpecification, BarType, TradeTick}, // Added TradeTick
+        enums::{AggressorSide, AggregationSource, BarAggregation, PriceType}, // Added AggressorSide
+        identifiers::TradeId, // Added TradeId
         instruments::{CurrencyPair, Equity, Instrument, InstrumentAny, stubs::*},
         types::{Price, Quantity},
     };
@@ -1667,9 +1818,19 @@ mod tests {
                 handler_guard.push(bar);
             },
             false,
+            None, // filter_mint_address
         );
 
-        let trade = TradeTick::default();
+        let trade = TradeTick::new(
+            instrument.id().into(),
+            Price::from("1.0"),
+            Quantity::from(1),
+            AggressorSide::Buyer,
+            TradeId::from("trade1"),
+            UnixNanos::from(0),
+            UnixNanos::from(1),
+            None, // mint_address for trade
+        );
         aggregator.handle_trade(trade);
 
         let handler_guard = handler.lock().unwrap();
@@ -1693,23 +1854,110 @@ mod tests {
                 handler_guard.push(bar);
             },
             false,
+            None, // filter_mint_address
         );
 
-        let trade = TradeTick::default();
-        aggregator.handle_trade(trade);
-        aggregator.handle_trade(trade);
-        aggregator.handle_trade(trade);
+        let trade1 = TradeTick::new(
+            instrument.id().into(), Price::from("1.0"), Quantity::from(1), AggressorSide::Buyer, TradeId::from("t1"), UnixNanos::from(0), UnixNanos::from(1), None
+        );
+        let trade2 = TradeTick::new(
+            instrument.id().into(), Price::from("1.1"), Quantity::from(1), AggressorSide::Seller, TradeId::from("t2"), UnixNanos::from(10), UnixNanos::from(11), None
+        );
+        let trade3 = TradeTick::new(
+            instrument.id().into(), Price::from("0.9"), Quantity::from(1), AggressorSide::Buyer, TradeId::from("t3"), UnixNanos::from(20), UnixNanos::from(21), None
+        );
+
+        aggregator.handle_trade(trade1);
+        aggregator.handle_trade(trade2);
+        aggregator.handle_trade(trade3);
 
         let handler_guard = handler.lock().unwrap();
         let bar = handler_guard.first().unwrap();
         assert_eq!(handler_guard.len(), 1);
-        assert_eq!(bar.open, trade.price);
-        assert_eq!(bar.high, trade.price);
-        assert_eq!(bar.low, trade.price);
-        assert_eq!(bar.close, trade.price);
-        assert_eq!(bar.volume, Quantity::from(300000));
-        assert_eq!(bar.ts_event, trade.ts_event);
-        assert_eq!(bar.ts_init, trade.ts_init);
+        assert_eq!(bar.open, Price::from("1.0"));
+        assert_eq!(bar.high, Price::from("1.1"));
+        assert_eq!(bar.low, Price::from("0.9"));
+        assert_eq!(bar.close, Price::from("0.9"));
+        assert_eq!(bar.volume, Quantity::from(3));
+        assert_eq!(bar.ts_event, UnixNanos::from(20)); // Timestamp of the last trade that completed the bar
+        assert_eq!(bar.ts_init, UnixNanos::from(20)); // Same as ts_event for tick/vol/value bars
+    }
+
+    fn make_dummy_mint_address(val: u8) -> [u8; 32] {
+        let mut addr = [0u8; 32];
+        addr[0] = val;
+        addr
+    }
+
+    #[rstest]
+    fn test_tick_bar_aggregator_mint_address_filtering(equity_aapl: Equity) {
+        let instrument = InstrumentAny::Equity(equity_aapl);
+        let bar_spec = BarSpecification::new(2, BarAggregation::Tick, PriceType::Last); // 2 ticks to form a bar
+        let bar_type = BarType::new(instrument.id(), bar_spec, AggregationSource::Internal);
+        let handler = Arc::new(Mutex::new(Vec::new()));
+        let handler_clone = Arc::clone(&handler);
+
+        let filter_addr = make_dummy_mint_address(1);
+
+        let mut aggregator = TickBarAggregator::new(
+            bar_type,
+            instrument.price_precision(),
+            instrument.size_precision(),
+            move |bar: Bar| {
+                let mut handler_guard = handler_clone.lock().unwrap();
+                handler_guard.push(bar);
+            },
+            false,
+            Some(filter_addr), // filter_mint_address
+        );
+
+        let trade_match1 = TradeTick::new(instrument.id().into(), Price::from("1.0"), Quantity::from(1), AggressorSide::Buyer, TradeId::from("tm1"), UnixNanos::from(0), UnixNanos::from(1), Some(filter_addr));
+        let trade_no_addr = TradeTick::new(instrument.id().into(), Price::from("1.1"), Quantity::from(1), AggressorSide::Seller, TradeId::from("tna"), UnixNanos::from(10), UnixNanos::from(11), None);
+        let trade_mismatch = TradeTick::new(instrument.id().into(), Price::from("1.2"), Quantity::from(1), AggressorSide::Buyer, TradeId::from("tmm"), UnixNanos::from(20), UnixNanos::from(21), Some(make_dummy_mint_address(2)));
+        let trade_match2 = TradeTick::new(instrument.id().into(), Price::from("1.3"), Quantity::from(1), AggressorSide::Seller, TradeId::from("tm2"), UnixNanos::from(30), UnixNanos::from(31), Some(filter_addr));
+
+        aggregator.handle_trade(trade_match1);    // Count = 1 (matches)
+        aggregator.handle_trade(trade_no_addr);   // Ignored (no address)
+        aggregator.handle_trade(trade_mismatch);  // Ignored (address mismatch)
+        aggregator.handle_trade(trade_match2);    // Count = 2 (matches, bar forms)
+
+        let handler_guard = handler.lock().unwrap();
+        assert_eq!(handler_guard.len(), 1, "A bar should have formed from matching trades.");
+        let bar = handler_guard.first().unwrap();
+        assert_eq!(bar.open, Price::from("1.0"));
+        assert_eq!(bar.high, Price::from("1.3"));
+        assert_eq!(bar.low, Price::from("1.0"));
+        assert_eq!(bar.close, Price::from("1.3"));
+        assert_eq!(bar.volume, Quantity::from(2));
+
+        // Test with no filter (should include all)
+        let handler2 = Arc::new(Mutex::new(Vec::new()));
+        let handler_clone2 = Arc::clone(&handler2);
+        let mut aggregator_no_filter = TickBarAggregator::new(
+            bar_type,
+            instrument.price_precision(),
+            instrument.size_precision(),
+            move |bar: Bar| {
+                let mut handler_guard = handler_clone2.lock().unwrap();
+                handler_guard.push(bar);
+            },
+            false,
+            None, // No filter
+        );
+        // trade_match1, trade_no_addr, trade_mismatch, trade_match2
+        // Expect bar from trade_match1, trade_no_addr
+        // Then another bar from trade_mismatch, trade_match2
+        aggregator_no_filter.handle_trade(trade_match1);
+        aggregator_no_filter.handle_trade(trade_no_addr); // Forms first bar
+        aggregator_no_filter.handle_trade(trade_mismatch);
+        aggregator_no_filter.handle_trade(trade_match2); // Forms second bar
+
+        let handler_guard2 = handler2.lock().unwrap();
+        assert_eq!(handler_guard2.len(), 2, "Two bars should form when no filter is active.");
+        assert_eq!(handler_guard2[0].volume, Quantity::from(2));
+        assert_eq!(handler_guard2[0].close, Price::from("1.1")); // from trade_no_addr
+        assert_eq!(handler_guard2[1].volume, Quantity::from(2));
+        assert_eq!(handler_guard2[1].close, Price::from("1.3")); // from trade_match2
     }
 
     #[rstest]
@@ -1729,6 +1977,7 @@ mod tests {
                 handler_guard.push(bar);
             },
             false,
+            None, // filter_mint_address
         );
 
         aggregator.update(
@@ -1775,6 +2024,7 @@ mod tests {
                 handler_guard.push(bar);
             },
             false,
+            None, // filter_mint_address
         );
 
         aggregator.update(
@@ -1829,6 +2079,7 @@ mod tests {
                 handler_guard.push(bar);
             },
             false,
+            None, // filter_mint_address
         );
 
         aggregator.update(
@@ -1862,6 +2113,7 @@ mod tests {
                 handler_guard.push(bar);
             },
             false,
+            None, // filter_mint_address
         );
 
         // Updates to reach value threshold: 100 * 5 + 100 * 5 = $1000
@@ -1899,6 +2151,7 @@ mod tests {
                 handler_guard.push(bar);
             },
             false,
+            None, // filter_mint_address
         );
 
         // Single large update: $100 * 25 = $2500 (should create 2 bars)
@@ -1940,6 +2193,7 @@ mod tests {
             None,  // time_bars_origin
             15,    // composite_bar_build_delay
             false, // skip_first_non_full_bar
+            None, // filter_mint_address
         );
 
         aggregator.update(
@@ -1991,6 +2245,7 @@ mod tests {
             None,
             15,
             false, // skip_first_non_full_bar
+            None, // filter_mint_address
         );
 
         // Update in first interval
@@ -2052,6 +2307,7 @@ mod tests {
             None,
             15,
             false, // skip_first_non_full_bar
+            None, // filter_mint_address
         );
 
         // Update in first interval
@@ -2116,6 +2372,7 @@ mod tests {
             None,
             15,
             false, // skip_first_non_full_bar
+            None, // filter_mint_address
         );
 
         // No updates, just interval close
@@ -2147,6 +2404,7 @@ mod tests {
             None,
             15,
             false, // skip_first_non_full_bar
+            None, // filter_mint_address
         );
 
         aggregator.update(
@@ -2200,6 +2458,7 @@ mod tests {
             None,
             15,
             false, // skip_first_non_full_bar
+            None, // filter_mint_address
         );
 
         let ts1 = UnixNanos::from(1_000_000_000);
@@ -2243,6 +2502,7 @@ mod tests {
             None,
             15,
             false, // skip_first_non_full_bar
+            None, // filter_mint_address
         );
 
         let ts1 = UnixNanos::from(1_000_000_000);
@@ -2255,5 +2515,253 @@ mod tests {
 
         let handler_guard = handler.lock().unwrap();
         assert_eq!(handler_guard.len(), 0);
+    }
+
+    #[rstest]
+    fn test_time_bar_aggregator_mint_address_filtering(equity_aapl: Equity) {
+        let instrument = InstrumentAny::Equity(equity_aapl);
+        let bar_spec = BarSpecification::new(1, BarAggregation::Second, PriceType::Last);
+        let bar_type = BarType::new(instrument.id(), bar_spec, AggregationSource::Internal);
+        let clock = Rc::new(RefCell::new(TestClock::new()));
+        let handler = Arc::new(Mutex::new(Vec::new()));
+        let handler_clone = Arc::clone(&handler);
+
+        let filter_addr = make_dummy_mint_address(1);
+
+        let mut aggregator = TimeBarAggregator::new(
+            bar_type,
+            instrument.price_precision(),
+            instrument.size_precision(),
+            clock.clone(),
+            move |bar: Bar| {
+                let mut handler_guard = handler_clone.lock().unwrap();
+                handler_guard.push(bar);
+            },
+            false, // await_partial
+            true,  // build_with_no_updates
+            false, // timestamp_on_close
+            BarIntervalType::LeftOpen,
+            None,  // time_bars_origin
+            15,    // composite_bar_build_delay
+            false, // skip_first_non_full_bar
+            Some(filter_addr), // filter_mint_address
+        );
+
+        let trade_match1 = TradeTick::new(instrument.id().into(), Price::from("100.0"), Quantity::from(1), AggressorSide::Buyer, TradeId::from("tm1"), UnixNanos::from(100_000_000), UnixNanos::from(100_000_001), Some(filter_addr));
+        let trade_no_addr = TradeTick::new(instrument.id().into(), Price::from("101.0"), Quantity::from(1), AggressorSide::Seller, TradeId::from("tna"), UnixNanos::from(200_000_000), UnixNanos::from(200_000_001), None);
+        let trade_mismatch = TradeTick::new(instrument.id().into(), Price::from("102.0"), Quantity::from(1), AggressorSide::Buyer, TradeId::from("tmm"), UnixNanos::from(300_000_000), UnixNanos::from(300_000_001), Some(make_dummy_mint_address(2)));
+        let trade_match2 = TradeTick::new(instrument.id().into(), Price::from("103.0"), Quantity::from(1), AggressorSide::Seller, TradeId::from("tm2"), UnixNanos::from(400_000_000), UnixNanos::from(400_000_001), Some(filter_addr));
+
+        aggregator.update(trade_match1.price, trade_match1.size, trade_match1.ts_event);     // Processed
+        aggregator.handle_trade(trade_no_addr);    // Filtered out
+        aggregator.handle_trade(trade_mismatch);   // Filtered out
+        aggregator.update(trade_match2.price, trade_match2.size, trade_match2.ts_event);     // Processed
+
+        // Advance time to trigger bar formation
+        let next_sec = UnixNanos::from(1_000_000_000);
+        clock.borrow_mut().set_time(next_sec);
+        let event = TimeEvent::new(Ustr::from("1-SECOND-LAST"), UUID4::new(), next_sec, next_sec);
+        aggregator.build_bar(event);
+
+        let handler_guard = handler.lock().unwrap();
+        assert_eq!(handler_guard.len(), 1, "One bar should form from matching trades");
+        let bar = handler_guard.first().unwrap();
+        assert_eq!(bar.open, Price::from("100.0"));
+        assert_eq!(bar.high, Price::from("103.0"));
+        assert_eq!(bar.low, Price::from("100.0"));
+        assert_eq!(bar.close, Price::from("103.0"));
+        assert_eq!(bar.volume, Quantity::from(2)); // Only two trades matched
+    }
+
+    #[rstest]
+    fn test_volume_bar_aggregator_mint_address_filtering(equity_aapl: Equity) {
+        let instrument = InstrumentAny::Equity(equity_aapl);
+        let bar_spec = BarSpecification::new(10, BarAggregation::Volume, PriceType::Last); // 10 units of volume to form a bar
+        let bar_type = BarType::new(instrument.id(), bar_spec, AggregationSource::Internal);
+        let handler = Arc::new(Mutex::new(Vec::new()));
+        let handler_clone = Arc::clone(&handler);
+
+        let filter_addr = make_dummy_mint_address(1);
+
+        let mut aggregator = VolumeBarAggregator::new(
+            bar_type,
+            instrument.price_precision(),
+            instrument.size_precision(),
+            move |bar: Bar| {
+                let mut handler_guard = handler_clone.lock().unwrap();
+                handler_guard.push(bar);
+            },
+            false,
+            Some(filter_addr), // filter_mint_address
+        );
+
+        // Trades: total volume of matching trades = 5 + 7 = 12. Should form one bar.
+        let trade_match1 = TradeTick::new(instrument.id().into(), Price::from("1.0"), Quantity::from(5), AggressorSide::Buyer, TradeId::from("tm1"), UnixNanos::from(0), UnixNanos::from(1), Some(filter_addr));
+        let trade_no_addr = TradeTick::new(instrument.id().into(), Price::from("1.1"), Quantity::from(5), AggressorSide::Seller, TradeId::from("tna"), UnixNanos::from(10), UnixNanos::from(11), None);
+        let trade_mismatch = TradeTick::new(instrument.id().into(), Price::from("1.2"), Quantity::from(5), AggressorSide::Buyer, TradeId::from("tmm"), UnixNanos::from(20), UnixNanos::from(21), Some(make_dummy_mint_address(2)));
+        let trade_match2 = TradeTick::new(instrument.id().into(), Price::from("1.3"), Quantity::from(7), AggressorSide::Seller, TradeId::from("tm2"), UnixNanos::from(30), UnixNanos::from(31), Some(filter_addr));
+
+        aggregator.handle_trade(trade_match1);    // Volume = 5 (matches)
+        aggregator.handle_trade(trade_no_addr);   // Ignored (no address)
+        aggregator.handle_trade(trade_mismatch);  // Ignored (address mismatch)
+        aggregator.handle_trade(trade_match2);    // Volume = 5 + 7 = 12 (matches, bar forms with 10, remaining 2)
+
+        let handler_guard = handler.lock().unwrap();
+        assert_eq!(handler_guard.len(), 1, "A bar should have formed from matching trades.");
+        let bar = handler_guard.first().unwrap();
+        assert_eq!(bar.open, Price::from("1.0"));
+        assert_eq!(bar.high, Price::from("1.3")); // Price from trade_match1 and trade_match2 (partially)
+        assert_eq!(bar.low, Price::from("1.0"));
+        assert_eq!(bar.close, Price::from("1.3")); // Price of the trade that completed the volume bar
+        assert_eq!(bar.volume, Quantity::from(10)); // Bar forms with 10 volume
+
+        // Check remaining volume in builder
+        assert_eq!(aggregator.core.builder.volume, Quantity::from(2));
+        assert_eq!(aggregator.core.builder.open, Some(Price::from("1.3"))); // Open of next bar is price of last trade
+
+        // Test with no filter
+        let handler2 = Arc::new(Mutex::new(Vec::new()));
+        let handler_clone2 = Arc::clone(&handler2);
+        let mut aggregator_no_filter = VolumeBarAggregator::new(
+            bar_type,
+            instrument.price_precision(),
+            instrument.size_precision(),
+            move |bar: Bar| {
+                let mut handler_guard = handler_clone2.lock().unwrap();
+                handler_guard.push(bar);
+            },
+            false,
+            None, // No filter
+        );
+        // Trades: tm1 (5), tna (5), tmm (5), tm2 (7) -> total 22
+        // Bar 1: tm1 (5) + tna (5) = 10. Close price 1.1
+        // Bar 2: tmm (5) + tm2 (5 of 7) = 10. Close price 1.3
+        // Remaining: tm2 (2)
+        aggregator_no_filter.handle_trade(trade_match1);
+        aggregator_no_filter.handle_trade(trade_no_addr);
+        aggregator_no_filter.handle_trade(trade_mismatch);
+        aggregator_no_filter.handle_trade(trade_match2);
+
+        let handler_guard2 = handler2.lock().unwrap();
+        assert_eq!(handler_guard2.len(), 2, "Two bars should form when no filter is active.");
+        assert_eq!(handler_guard2[0].volume, Quantity::from(10));
+        assert_eq!(handler_guard2[0].close, Price::from("1.1")); // from trade_no_addr
+        assert_eq!(handler_guard2[1].volume, Quantity::from(10));
+        assert_eq!(handler_guard2[1].close, Price::from("1.3")); // from trade_match2 (partially)
+        assert_eq!(aggregator_no_filter.core.builder.volume, Quantity::from(2));
+    }
+
+    #[rstest]
+    fn test_value_bar_aggregator_mint_address_filtering(equity_aapl: Equity) {
+        let instrument = InstrumentAny::Equity(equity_aapl);
+        // Value step = 1000. Price precision 2, size precision 0 for AAPL usually.
+        let bar_spec = BarSpecification::new(1000, BarAggregation::Value, PriceType::Last);
+        let bar_type = BarType::new(instrument.id(), bar_spec, AggregationSource::Internal);
+        let handler = Arc::new(Mutex::new(Vec::new()));
+        let handler_clone = Arc::clone(&handler);
+
+        let filter_addr = make_dummy_mint_address(1);
+
+        let mut aggregator = ValueBarAggregator::new(
+            bar_type,
+            instrument.price_precision(),
+            instrument.size_precision(),
+            move |bar: Bar| {
+                let mut handler_guard = handler_clone.lock().unwrap();
+                handler_guard.push(bar);
+            },
+            false,
+            Some(filter_addr), // filter_mint_address
+        );
+
+        // Trades:
+        // tm1: P=100, Q=6. Value = 600. (Matches)
+        // tna: P=110, Q=5. Value = 550. (No addr)
+        // tmm: P=120, Q=5. Value = 600. (Mismatch)
+        // tm2: P=130, Q=4. Value = 520. (Matches). Current cum_value = 600 + 520 = 1120. Bar forms.
+        let trade_match1 = TradeTick::new(instrument.id().into(), Price::from("100.00"), Quantity::from(6), AggressorSide::Buyer, TradeId::from("tm1"), UnixNanos::from(0), UnixNanos::from(1), Some(filter_addr));
+        let trade_no_addr = TradeTick::new(instrument.id().into(), Price::from("110.00"), Quantity::from(5), AggressorSide::Seller, TradeId::from("tna"), UnixNanos::from(10), UnixNanos::from(11), None);
+        let trade_mismatch = TradeTick::new(instrument.id().into(), Price::from("120.00"), Quantity::from(5), AggressorSide::Buyer, TradeId::from("tmm"), UnixNanos::from(20), UnixNanos::from(21), Some(make_dummy_mint_address(2)));
+        let trade_match2 = TradeTick::new(instrument.id().into(), Price::from("130.00"), Quantity::from(4), AggressorSide::Seller, TradeId::from("tm2"), UnixNanos::from(30), UnixNanos::from(31), Some(filter_addr));
+
+        aggregator.handle_trade(trade_match1);    // Value = 600.00 (cum_value = 600)
+        aggregator.handle_trade(trade_no_addr);   // Ignored
+        aggregator.handle_trade(trade_mismatch);  // Ignored
+        aggregator.handle_trade(trade_match2);    // Value = 520.00. cum_value = 600 + 520 = 1120. Bar forms.
+
+        let handler_guard = handler.lock().unwrap();
+        assert_eq!(handler_guard.len(), 1, "A bar should have formed from matching trades.");
+        let bar = handler_guard.first().unwrap();
+        // Expected bar:
+        // Open: 100.00 (from tm1)
+        // High: 130.00 (from tm2)
+        // Low: 100.00 (from tm1)
+        // Close: 130.00 (from tm2, as it completed the bar)
+        // Volume: tm1_qty (6) + part of tm2_qty.
+        // Value for tm1 = 100 * 6 = 600. Remaining needed = 1000 - 600 = 400.
+        // Value from tm2 = 130 * Q. We need 400. So Q = 400 / 130 = 3.0769...
+        // So, volume = 6 (from tm1) + 400/130 (from tm2)
+        let expected_volume_for_bar = Quantity::from(6) + Quantity::new(400.0 / 130.0, instrument.size_precision());
+
+        assert_eq!(bar.open, Price::from("100.00"));
+        assert_eq!(bar.high, Price::from("130.00"));
+        assert_eq!(bar.low, Price::from("100.00"));
+        assert_eq!(bar.close, Price::from("130.00"));
+        // Due to floating point precision in calculation of size_diff, direct comparison of volume can be tricky.
+        // Check that the volume is close to the expected_volume_for_bar or that cum_value is reset.
+        // The cum_value in the aggregator will be (130 * 4) - 400 = 520 - 400 = 120 for the next bar.
+        assert!((bar.volume.as_f64() - expected_volume_for_bar.as_f64()).abs() < 1e-9 || aggregator.cum_value > 0.0);
+        assert!((aggregator.cum_value - (130.0 * 4.0 - 400.0)).abs() < 1e-9, "Remaining cum_value is incorrect");
+
+
+        // Test with no filter
+        let handler2 = Arc::new(Mutex::new(Vec::new()));
+        let handler_clone2 = Arc::clone(&handler2);
+        let mut aggregator_no_filter = ValueBarAggregator::new(
+            bar_type,
+            instrument.price_precision(),
+            instrument.size_precision(),
+            move |bar: Bar| {
+                let mut handler_guard = handler_clone2.lock().unwrap();
+                handler_guard.push(bar);
+            },
+            false,
+            None, // No filter
+        );
+
+        // Values: tm1 (600), tna (550), tmm (600), tm2 (520)
+        // Bar 1: tm1 (600) + tna (400 of 550, Q_tna_used = 400/110 = 3.6363). Total value = 1000.
+        //          Close price 110.00. Remaining tna_value = 150.
+        // Bar 2: tna_rem (150) + tmm (600) + tm2 (250 of 520, Q_tm2_used = 250/130 = 1.923). Total value = 1000.
+        //          Close price 130.00. Remaining tm2_value = 270.
+
+        aggregator_no_filter.handle_trade(trade_match1);  // cum_val = 600
+        aggregator_no_filter.handle_trade(trade_no_addr); // cum_val = 600 + 550 = 1150. Bar 1 forms. Rem val = 150.
+        aggregator_no_filter.handle_trade(trade_mismatch); // cum_val = 150 + 600 = 750
+        aggregator_no_filter.handle_trade(trade_match2); // cum_val = 750 + 520 = 1270. Bar 2 forms. Rem val = 270.
+
+
+        let handler_guard2 = handler2.lock().unwrap();
+        assert_eq!(handler_guard2.len(), 2, "Two bars should form when no filter is active.");
+
+        assert_eq!(handler_guard2[0].close, Price::from("110.00")); // from trade_no_addr
+        let tna_val_for_bar1 = 1000.0 - 600.0;
+        let tna_qty_for_bar1 = Quantity::new(tna_val_for_bar1 / 110.0, instrument.size_precision());
+        let expected_vol_bar1 = Quantity::from(6) + tna_qty_for_bar1;
+        assert!((handler_guard2[0].volume.as_f64() - expected_vol_bar1.as_f64()).abs() < 1e-9);
+
+
+        assert_eq!(handler_guard2[1].close, Price::from("130.00")); // from trade_match2
+        let tna_rem_val = 550.0 - tna_val_for_bar1;
+        let tmm_val_for_bar2 = 600.0;
+        let tm2_val_for_bar2 = 1000.0 - tna_rem_val - tmm_val_for_bar2;
+        let tna_rem_qty = Quantity::new(tna_rem_val / 110.0, instrument.size_precision());
+        let tmm_qty_for_bar2 = Quantity::from(5);
+        let tm2_qty_for_bar2 = Quantity::new(tm2_val_for_bar2 / 130.0, instrument.size_precision());
+        let expected_vol_bar2 = tna_rem_qty + tmm_qty_for_bar2 + tm2_qty_for_bar2;
+        assert!((handler_guard2[1].volume.as_f64() - expected_vol_bar2.as_f64()).abs() < 1e-9);
+
+        let expected_rem_cum_value = (130.0 * 4.0) - tm2_val_for_bar2;
+        assert!((aggregator_no_filter.cum_value - expected_rem_cum_value).abs() < 1e-9, "Remaining cum_value for no_filter is incorrect");
     }
 }

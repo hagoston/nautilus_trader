@@ -41,7 +41,8 @@ from nautilus_trader.core.rust.model cimport PriceType
 from nautilus_trader.core.rust.model cimport QuantityRaw
 from nautilus_trader.core.rust.model cimport QuoteTick_t
 from nautilus_trader.core.rust.model cimport TradeTick_t
-from nautilus_trader.model.data cimport BarAggregation
+from nautilus_trader.core.rust.model cimport MintSpecificBar_t # Added import
+from nautilus_trader.model.data cimport BarAggregation # Already here, but for context
 from nautilus_trader.model.data cimport OrderBookDelta
 from nautilus_trader.model.data cimport OrderBookDeltas
 from nautilus_trader.model.identifiers cimport InstrumentId
@@ -492,3 +493,11 @@ cdef class IndexPriceUpdate(Data):
 
     @staticmethod
     cdef dict to_dict_c(IndexPriceUpdate obj)
+
+
+cdef class MintSpecificBar(Data):
+    cdef MintSpecificBar_t _mem
+    cdef readonly Bar bar # Property to access the Bar object
+
+    @staticmethod
+    cdef MintSpecificBar from_mem_c(MintSpecificBar_t mem)

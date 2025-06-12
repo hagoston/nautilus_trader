@@ -25,3 +25,5 @@ backtest and live implementations - helping to ensure consistent logic for
 trading operations.
 
 """
+
+from .dynamic_aggregation import DynamicAggregatorManager

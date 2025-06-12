@@ -45,7 +45,7 @@ use serde_json::to_string;
 
 // Re-exports
 #[rustfmt::skip]  // Keep these grouped
-pub use bar::{Bar, BarSpecification, BarType};
+pub use bar::{Bar, BarSpecification, BarType, MintSpecificBar}; // Added MintSpecificBar
 pub use delta::OrderBookDelta;
 pub use deltas::{OrderBookDeltas, OrderBookDeltas_API};
 pub use depth::{DEPTH10_LEN, OrderBookDepth10};

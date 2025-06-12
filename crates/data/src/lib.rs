@@ -39,3 +39,13 @@
 pub mod aggregation;
 pub mod client;
 pub mod engine;
+pub mod dynamic_aggregation;
+
+// Re-exports from local modules should ideally be grouped
+pub use self::dynamic_aggregation::DynamicAggregatorManager;
+
+// Re-exports from local modules should ideally be grouped
+pub use self::dynamic_aggregation::DynamicAggregatorManager;
+
+// Re-exports from local modules should ideally be grouped
+pub use self::dynamic_aggregation::DynamicAggregatorManager;
