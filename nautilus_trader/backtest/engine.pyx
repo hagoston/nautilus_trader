@@ -13,6 +13,11 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
+cdef extern from "Python.h":
+    const char* __FILE__
+    const char* __FUNCTION__
+    int __LINE__
+
 import heapq
 import pickle
 from decimal import Decimal
@@ -1338,6 +1343,7 @@ cdef class BacktestEngine:
                 data = self._data_iterator.next()
 
                 if data is None or data.ts_init > self._last_ns:
+                    # self._log.error(f"HAGO Finally process the time events {raw_handlers.len} {self._last_ns}")
                     # Finally process the time events
                     self._process_raw_time_event_handlers(
                         raw_handlers,
@@ -1346,6 +1352,7 @@ cdef class BacktestEngine:
                     )
 
                     # Drop processed event handlers
+                    # self._log.error(f"calling vec_time_event_handlers_drop")
                     vec_time_event_handlers_drop(raw_handlers)
                     raw_handlers_count = 0
 

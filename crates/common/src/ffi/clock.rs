@@ -239,9 +239,13 @@ pub unsafe extern "C" fn test_clock_advance_time(
 #[unsafe(no_mangle)]
 pub extern "C" fn vec_time_event_handlers_drop(v: CVec) {
     let CVec { ptr, len, cap } = v;
-    let data: Vec<TimeEventHandler> =
-        unsafe { Vec::from_raw_parts(ptr.cast::<TimeEventHandler>(), len, cap) };
-    drop(data); // Memory freed here
+    
+    // Apply a standard safety guard before attempting to reconstruct the Vec
+    if !ptr.is_null() && cap > 0 {
+        let data: Vec<TimeEventHandler> =
+            unsafe { Vec::from_raw_parts(ptr.cast::<TimeEventHandler>(), len, cap) };
+        drop(data); // Memory freed here
+    }
 }
 
 /// # Safety

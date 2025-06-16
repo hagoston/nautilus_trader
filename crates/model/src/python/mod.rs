@@ -125,6 +125,7 @@ pub fn model(_: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::identifiers::Symbol>()?;
     m.add_class::<crate::identifiers::TradeId>()?;
     m.add_class::<crate::identifiers::TraderId>()?;
+    m.add_class::<crate::identifiers::SolanaAddress>()?; // Added
     m.add_class::<crate::identifiers::Venue>()?;
     m.add_class::<crate::identifiers::VenueOrderId>()?;
     // Orders

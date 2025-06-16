@@ -518,7 +518,7 @@ cdef class TradeTickDataWrangler:
     """
 
     def __init__(self, Instrument instrument not None):
-        print(f'CUSTOM BUILD:: nautilus_trader/persistence/wranglers.pyx/TradeTickDataWrangler()\n')
+        # print(f'CUSTOM BUILD:: nautilus_trader/persistence/wranglers.pyx/TradeTickDataWrangler()\n')
         self.instrument = instrument
 
     def process(self, data: pd.DataFrame, ts_init_delta: int=0, bint is_raw=False):

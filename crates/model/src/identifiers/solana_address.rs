@@ -24,6 +24,7 @@ use std::{
 use nautilus_core::correctness::{
     check_predicate_false, check_predicate_true, check_slice_not_empty, FAILED,
 };
+use pyo3::prelude::*; // Added for PyResult
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
 /// The maximum number of data characters for a `SolanaAddress` string value.
@@ -169,6 +170,28 @@ impl SolanaAddress {
     pub fn as_str(&self) -> &str {
         // SAFETY: Unwrap safe as Base58 characters are valid UTF-8, and constructors ensure this.
         self.as_cstr().to_str().unwrap()
+    }
+}
+
+#[cfg(feature = "python")]
+#[pymethods]
+impl SolanaAddress {
+    #[new]
+    fn py_new(value: &str) -> PyResult<Self> {
+        Self::new_checked(value).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+    }
+
+    fn __str__(&self) -> String {
+        self.as_str().to_string()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("SolanaAddress('{}')", self.as_str())
+    }
+
+    #[getter]
+    fn value(&self) -> &str {
+        self.as_str()
     }
 }
 
